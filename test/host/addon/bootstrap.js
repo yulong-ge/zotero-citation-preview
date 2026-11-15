@@ -78,7 +78,7 @@ async function run() {
   await view.navigate(Cu.cloneInto({position}, reader._iframeWindow));
   await waitFor(() => view._pdfPages[0]?.overlays?.length && !view._scrolling, 'Source page did not become ready');
   await Zotero.Promise.delay(800);
-  const rect = view.getClientRect(position.rects[0], 0);
+  const rect = view.getClientRect(Cu.cloneInto(position.rects[0], view._iframeWindow), 0);
   const win = Cu.unwaiveXrays(view._iframeWindow);
   function move(x, y) {
     assert(win.document.elementFromPoint(x, y), 'Pointer coordinates are outside the document: ' + [x, y]);
