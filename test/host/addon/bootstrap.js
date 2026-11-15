@@ -104,7 +104,7 @@ async function run() {
   assert(card.width <= 422 && card.height <= Math.min(300, doc.defaultView.innerHeight * .4) + 2, 'Named reference card exceeds compact bounds');
   assert(doc.defaultView.getComputedStyle(block.parentNode.querySelector('.inner')).display === 'none', 'Native reference image remains expanded');
   capture();
-  const page = win.PDFViewerApplication.pdfViewer._pages[0].div.getBoundingClientRect();
+  const page = view._iframeWindow.PDFViewerApplication.pdfViewer._pages[0].div.getBoundingClientRect();
   move(Math.max(10, page.left + 10), Math.max(10, page.top + 10));
   await waitFor(() => !popup(), 'Native popup did not close after pointer exit');
   await Zotero.Promise.delay(1000);
