@@ -1,0 +1,15 @@
+{
+  "manifest_version": 2,
+  "name": "Citation Preview",
+  "version": "0.1.9",
+  "description": "Lazy reference metadata cards for the Zotero PDF reader",
+  "author": "Local development",
+  "applications": {
+    "zotero": {
+      "id": "citation-preview@local",
+      "strict_min_version": "10.0",
+      "strict_max_version": "10.*",
+      "update_url": "https://github.com/yulong-ge/zotero-citation-preview/releases/latest/download/updates.json"
+    }
+  }
+}
