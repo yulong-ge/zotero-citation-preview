@@ -16,6 +16,15 @@ The owner authorized public source and release publication. Development and acce
 
 Stable update endpoint: `https://github.com/yulong-ge/zotero-citation-preview/releases/latest/download/updates.json`.
 
+## Version 0.1.11 evidence
+
+- Failing-first tests: seven citations previously had no directly selectable numbered buttons; the real EditHF dotted-reference fixture failed with a missing-start error; failed named citations lacked the compact-card marker. All three regressions pass after the change.
+- Full suite: `node --test test/*.test.cjs .local/native-pointer.test.cjs` passes 36/36 tests (35 public tests plus one local upstream-method test). Syntax checks and `git diff --check` pass.
+- The original 21-page EditHF-1M PDF was copied read-only into a separate Zotero 10.0.9 profile. Trusted pointer events at its table citation `[24]` reproduce a native internal-link popup. The independent parser extracts `24. Kawar…`, resolves Imagic metadata and its abstract, and the popup closes on pointer exit.
+- The same original PDF's seven-reference group was exercised with trusted clicks on all six remaining numbers. Every selection updates the original entry and selected state; six papers resolve titles. Reference 18 fails strict metadata matching and explicitly reports that failure. This is not counted as seven successful metadata lookups.
+- Grouped references hide the expanded native bibliography and keep one content scroller. A separate test-only copy with a deliberately invalid named destination verifies a 420 × 225.2 px error card at a 1000 × 563 viewport, with the page image hidden and native dismissal intact.
+- Addon disable removes its metadata and registered listener while preserving the native popup. Testing does not modify the personal profile or interrupt the owner's reader.
+
 ## Version 0.1.10 evidence
 
 The owner reported that 0.1.9 suppressed native hover in three PDFs. Earlier callback-level tests did not cover the complete pointer-to-popup path.

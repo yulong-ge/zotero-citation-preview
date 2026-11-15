@@ -22,3 +22,11 @@ test('native worker omits space glyphs and uses spaceAfter flags',()=>{
  assert.match(raw,/Eloi Alonso, Adam Jelley/);assert.match(raw,/Diffusion for world modeling: Visual details matter in atari/);
  assert.doesNotMatch(raw,/Kevin Black/);
 });
+test('actual EditHF table citation extracts dotted reference 24 without merging reference 25',()=>{
+ const f=require('./edithf-ref-fixture.json');
+ const raw=extractNumberedReference(f.chars,f.point,24);
+ assert.match(raw,/^24\. Kawar/);assert.match(raw,/Imagic: Text-/);assert.match(raw,/2023/);
+ assert.doesNotMatch(raw,/25\.|Kim, J\.|Reflex/);
+ assert.throws(()=>extractNumberedReference(f.chars,f.point,23),/起点/);
+ assert.throws(()=>extractNumberedReference(f.chars.filter(c=>c.rect[1]>440),f.point,24),/边界/);
+});

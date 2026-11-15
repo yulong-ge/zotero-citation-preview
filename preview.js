@@ -123,15 +123,26 @@ var CitationPreview = (() => {
     try {
       const {doc}=session.state;
       const block=session.block=text(doc,'section','');block.className='cp-native-metadata';
+      if(session.namedCitation)block.setAttribute('data-cp-named-citation','true');
       block.setAttribute('aria-label','引用论文摘要');block.setAttribute('data-tabstop','1');block.tabIndex=-1;
+      let content=block;
       if(entries.length>1){
-        const label=text(doc,'label',`选择引用（${entries.length}）`,block);
-        const picker=text(doc,'select','',label);picker.setAttribute('aria-label','选择引用论文');picker.setAttribute('data-tabstop','1');
-        entries.forEach((entry,index)=>{const option=text(doc,'option',entry.label.slice(0,160),picker);option.value=String(index);});
-        picker.onchange=()=>loadMetadata(session,entries[Number(picker.value)]);
+        block.setAttribute('data-cp-multiple','true');
+        const choices=text(doc,'div','',block);choices.className='cp-reference-choices';
+        choices.setAttribute('role','group');choices.setAttribute('aria-label','切换引用论文');
+        session.choices=entries.map((entry,index)=>{
+          const match=entry.raw.match(/^\s*(?:\[(\d+)\]|(\d+)[.)])\s*/);
+          const label=match?`[${match[1]||match[2]}]`:`文献 ${index+1}`;
+          const button=text(doc,'button',label,choices);button.className='cp-reference-choice';button.type='button';
+          button.title=entry.raw;button.setAttribute('data-tabstop','1');button.setAttribute('aria-pressed','false');
+          button.onclick=()=>{if(session.selectedEntry!==entry)void loadMetadata(session,entry);};
+          return {button,entry};
+        });
+        content=text(doc,'div','',block);content.className='cp-content';session.scroller=content;
       }
-      session.body=text(doc,'div','',block);session.body.setAttribute('aria-live','polite');
-      const original=text(doc,'details','',block);text(doc,'summary','原始参考文献',original);
+      session.body=text(doc,'div','',content);session.body.setAttribute('aria-live','polite');
+      const original=session.details=text(doc,'details','',content);text(doc,'summary','原始参考文献',original);
+      original.hidden=true;
       session.original=text(doc,'p','',original);session.original.className='cp-original';
       session.host.append(block);
     } finally {
@@ -144,7 +155,11 @@ var CitationPreview = (() => {
     if(!prepared){cancelRequest(session);session.abort=new session.state.win.AbortController();session.timer=session.state.win.setTimeout(()=>session.abort?.abort(),12000);}
     const {state:s,body,original}=session;
     const sequence=session.sequence,abort=session.abort,timer=session.timer;
-    original.textContent=entry.raw;
+    session.selectedEntry=entry;
+    for(const choice of session.choices||[])choice.button.setAttribute('aria-pressed',String(choice.entry===entry));
+    session.details.open=false;
+    if(session.scroller)session.scroller.scrollTop=0;
+    original.textContent=entry.raw||'';session.details.hidden=!entry.raw;
     body.replaceChildren();text(s.doc,'p','正在核对引用及获取摘要…',body);
     try {
       const result=await resolve(s,entry.raw,abort.signal);
@@ -221,7 +236,17 @@ var CitationPreview = (() => {
     const s={reader,doc,win:doc.defaultView,sessions:new Map(),pageCaches:new WeakMap()};
     const style=text(doc,'style',`
 .cp-native-metadata{box-sizing:border-box;width:min(420px,70vw);max-width:100%;height:min(300px,40vh);max-height:min(300px,40vh);flex-shrink:0;overflow:auto;padding:12px;border-top:1px solid var(--fill-quinary);font:13px/1.5 system-ui;text-align:start;color:inherit}
-.cp-native-metadata h2{font-size:16px;line-height:1.35;margin:0 0 8px}.cp-native-metadata p{margin:7px 0}.cp-native-metadata .cp-authors{color:var(--fill-secondary);font-size:12px;max-height:4.5em;overflow:auto}.cp-native-metadata .cp-abstract{white-space:pre-wrap}.cp-native-metadata .cp-original{font-size:11px}.cp-native-metadata select{display:block;width:100%;font:inherit;color:inherit;background:var(--material-background);margin-bottom:8px}.cp-native-metadata button{font:inherit;color:inherit}.preview-popup:has(> .cp-native-metadata[data-cp-citation-verified]) > .inner{display:none}.preview-popup:has(> .cp-native-metadata[data-cp-citation-verified]){height:min(300px,40vh)}.preview-popup>.cp-native-metadata[data-cp-citation-verified]{height:100%;max-height:100%}.citation-popup:has(> .cp-native-metadata),.reference-popup:has(> .cp-native-metadata){height:min(420px,70vh);max-height:calc(100% - 20px);overflow:auto}.citation-popup:has(> .cp-native-metadata)>.inner{flex:1 1 auto;min-height:0;max-height:none}.reference-popup:has(> .cp-native-metadata)>.reference-row{flex:1 1 auto;min-height:0;overflow:auto}`);
+.cp-native-metadata h2{font-size:16px;line-height:1.35;margin:0 0 8px}.cp-native-metadata p{margin:7px 0}.cp-native-metadata .cp-authors{color:var(--fill-secondary);font-size:12px;max-height:4.5em;overflow:auto}.cp-native-metadata .cp-abstract{white-space:pre-wrap}.cp-native-metadata .cp-original{font-size:11px}.cp-native-metadata select{display:block;width:100%;font:inherit;color:inherit;background:var(--material-background);margin-bottom:8px}.cp-native-metadata button{font:inherit;color:inherit}.preview-popup:has(> .cp-native-metadata[data-cp-named-citation]) > .inner{display:none}.preview-popup:has(> .cp-native-metadata[data-cp-named-citation]){height:min(300px,40vh)}.preview-popup>.cp-native-metadata[data-cp-named-citation]{height:100%;max-height:100%}.citation-popup:has(> .cp-native-metadata),.reference-popup:has(> .cp-native-metadata){height:min(420px,70vh);max-height:calc(100% - 20px);overflow:auto}.citation-popup:has(> .cp-native-metadata)>.inner{flex:1 1 auto;min-height:0;max-height:none}.reference-popup:has(> .cp-native-metadata)>.reference-row{flex:1 1 auto;min-height:0;overflow:auto}
+.citation-popup:has(> .cp-native-metadata[data-cp-multiple]),.reference-popup:has(> .cp-native-metadata[data-cp-multiple]){height:min(360px,55vh);overflow:hidden}
+.citation-popup:has(> .cp-native-metadata[data-cp-multiple])>.inner,.reference-popup:has(> .cp-native-metadata[data-cp-multiple])>.reference-row{display:none}
+.cp-native-metadata[data-cp-multiple]{height:100%;max-height:100%;padding:0;overflow:hidden;display:flex;flex-direction:column;border-top:0}
+.cp-reference-choices{display:flex;flex-wrap:wrap;gap:6px;flex:none;padding:10px 12px;border-bottom:1px solid var(--fill-quinary)}
+.cp-reference-choice{border:1px solid var(--fill-quaternary);border-radius:5px;padding:3px 7px;background:transparent;cursor:pointer}
+.cp-reference-choice[aria-pressed="true"]{background:var(--fill-tertiary);font-weight:700;box-shadow:inset 0 -2px currentColor}
+.cp-reference-choice:focus-visible{outline:2px solid currentColor;outline-offset:1px}
+.cp-content{min-height:0;flex:1;overflow:auto;padding:12px}
+.cp-content .cp-authors{max-height:none;overflow:visible}
+`);
     s.style=style;doc.head.append(style);
     s.observer=new s.win.MutationObserver(()=>reconcile(s));
     s.observer.observe(doc.body,{childList:true,subtree:true});
@@ -238,7 +263,7 @@ var CitationPreview = (() => {
     reader._initPromise.then(()=>{if(running)attach(reader,doc);}).catch(report);
   }
   return {
-    version:'0.1.10',build:'native-popup-dom-enhancement',metrics,
+    version:'0.1.11',build:'native-popup-dom-enhancement',metrics,
     debugHooks(){return [...states.values()].map(s=>({itemID:s.reader.itemID,mode:'native-dom-observer',activePopups:s.sessions.size,observedDocument:s.doc===s.reader._iframeWindow?.document,primaryPopupType:s.reader._internalReader?._state?.primaryViewOverlayPopup?.type}));},
     measureResponsiveness({ durationMs = 5000, intervalMs = 50 } = {}) {
       if (!running) throw new Error('Citation Preview is disabled.');

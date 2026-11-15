@@ -52,7 +52,10 @@
         line=[];
       }
     }
-    const starts=lines.map((line,index)=>({line,index,number:Number(line.text.match(/^\[(\d{1,3})\]\s*\S/)?.[1])})).filter(x=>x.number);
+    const starts=lines.map((line,index)=>{
+      const match=line.text.match(/^(?:\[(\d{1,3})\]|(\d{1,3})\.)\s*\S/);
+      return {line,index,number:match?Number(match[1]||match[2]):null};
+    }).filter(x=>x.number);
     const matches=starts.filter(x=>x.number===expected && point[1]>=x.line.y0-18 && point[1]<=x.line.y1+18);
     if(matches.length!==1) throw new Error('目的地附近没有唯一且与正文编号一致的参考文献起点。');
     const start=matches[0]; const next=starts.find(x=>x.index>start.index);

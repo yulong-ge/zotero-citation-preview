@@ -45,16 +45,16 @@ test('verified citation styling survives native React class rewrites and keeps i
  assert.equal(host.classList.contains('cp-reference-enhanced'),false,'never add state classes to the React-owned popup');
  host.className='view-popup preview-popup page-popup-top-center';
  assert.equal(metadata.getAttribute('data-cp-citation-verified'),'true');
- assert.match(e.doc.head.textContent,/\.preview-popup:has\(> \.cp-native-metadata\[data-cp-citation-verified\]\)\s*>\s*\.inner\{display:none\}/);
+ assert.match(e.doc.head.textContent,/\.preview-popup:has\(> \.cp-native-metadata\[data-cp-named-citation\]\)\s*>\s*\.inner\{display:none\}/);
  e.addon.stop();assert.equal(host.className,'view-popup preview-popup page-popup-top-center');assert.equal(host.querySelector('.cp-native-metadata'),null);
 });
 test('verified preview has a stable bounded host and only its metadata owns scrolling',async()=>{
  const e=environment();pdf(e);e.addon.start();const host=e.popup(overlay());await tick();await tick();
  const css=e.doc.head.textContent;
- const style=css.match(/\.preview-popup:has\(> \.cp-native-metadata\[data-cp-citation-verified\]\)\{([^}]+)\}/)[1];
+ const style=css.match(/\.preview-popup:has\(> \.cp-native-metadata\[data-cp-named-citation\]\)\{([^}]+)\}/)[1];
  assert.doesNotMatch(style,/overflow:auto/,'the native host must not add a second scrollbar');
  assert.match(style,/height:min\(300px,40vh\)/);
- assert.match(css,/\.preview-popup>\.cp-native-metadata\[data-cp-citation-verified\]\{height:100%;max-height:100%\}/);
+ assert.match(css,/\.preview-popup>\.cp-native-metadata\[data-cp-named-citation\]\{height:100%;max-height:100%\}/);
  e.addon.stop();
 });
 test('content-realm reference arrays reject privileged object returns while primitive character maps remain valid',async()=>{
@@ -69,4 +69,11 @@ test('content-realm reference arrays reject privileged object returns while prim
  const host=e.popup({type:'citation',references:contentArray([nativeReference])});await tick();await tick();
  assert.equal(rejected.length,0,'content Array.map must never receive a privileged entry object');assert.ok(characterMaps>0,'native char maps still cross only primitive strings');
  assert.equal(e.errors.length,0,e.errors.map(error=>error.message).join(';'));assert.equal(e.urls.length,1);assert.match(host.textContent,/Real source abstract fixture/);e.addon.stop();
+});
+test('failed named citations still use the compact card and hide empty original-reference disclosure',async()=>{
+ const e=environment();pdf(e,{position:{pageIndex:12,x:0,y:9999}});e.addon.start();
+ const host=e.popup(overlay());await tick();await tick();
+ assert.match(host.textContent,/引用解析失败/);
+ assert.equal(host.querySelector('.cp-native-metadata').getAttribute('data-cp-named-citation'),'true');
+ assert.equal(host.querySelector('details').hidden,true);assert.equal(e.urls.length,0);e.addon.stop();
 });

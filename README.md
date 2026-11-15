@@ -2,7 +2,7 @@
 
 Adds verified paper metadata and abstracts **inside Zotero's native citation popovers**. Hover over a citation, or open it with Zotero's keyboard navigation. Zotero controls positioning, opening and dismissal. The plugin adds no toolbar button and creates no separate floating card.
 
-For native structured references, the bibliography remains visible and the metadata appears below it. For a PDF page-image preview, the plugin replaces the image only after an explicit `cite.*` destination and matching bibliography number identify a reference. Figure and section previews keep their native behavior. Closing a popover cancels its pending work; late responses cannot reopen it.
+Grouped citations show every reference number as a directly selectable button. Selecting a number loads that paper’s title, authors and abstract; the current original entry is available in a collapsed disclosure. The buttons remain visible above one scrolling content area. Single structured references retain the native bibliography above the metadata. For explicit `cite.*` PDF links, a compact card replaces the page image while the plugin checks the source number against the destination entry. Parsing failures remain in this compact card. Figure and section previews keep their native behavior. Closing a popover cancels its pending work; late responses cannot reopen it.
 
 ## Resolution and privacy
 
@@ -10,7 +10,7 @@ Only a citation opened by the reader is sent to metadata services. arXiv identif
 
 The original bibliography entry and source link remain available. Missing abstracts and lookup failures are shown explicitly. Some correctly identified references have no matching record in these services; the plugin reports that instead of showing an unrelated paper.
 
-For PDF named destinations, source and target reference numbers must agree. The next consecutive numbered reference supplies the end boundary. Ambiguous, cross-page and incomplete boundaries are rejected. The plugin does not reconstruct broken links or guess translated titles. PDF files, annotations and library records are not modified.
+For PDF named destinations, source and target reference numbers must agree. The independent destination parser accepts both `[24]` and `24.` bibliography numbering. The next consecutive numbered reference supplies the end boundary. Ambiguous, cross-page and incomplete boundaries are rejected. The plugin does not reconstruct broken links or guess translated titles. PDF files, annotations and library records are not modified.
 
 ## Implementation and performance
 
@@ -27,8 +27,8 @@ source "$HOME/.nvm/nvm.sh"
 nvm use default
 node --test test/*.test.cjs
 build_dir="$(mktemp -d)"
-zip -q "$build_dir/citation-preview-0.1.10.xpi" manifest.json bootstrap.js core.js preview.js
-mv "$build_dir/citation-preview-0.1.10.xpi" .
+zip -q "$build_dir/citation-preview-0.1.11.xpi" manifest.json bootstrap.js core.js preview.js
+mv "$build_dir/citation-preview-0.1.11.xpi" .
 rmdir "$build_dir"
 ```
 
