@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import socket
+import signal
+import uuid
 import subprocess
 import time
 import urllib.error
@@ -19,6 +21,11 @@ args = parser.parse_args()
 for path in (args.zotero, args.xpi, args.pdf):
     if not path.is_file():
         raise FileNotFoundError(path)
+for port in (23129, 23130):
+    with socket.socket() as reservation:
+        reservation.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        reservation.bind(('127.0.0.1', port))
+run_id = uuid.uuid4().hex
 root = args.output.resolve()
 root.mkdir(parents=True, exist_ok=False)
 profile, data = root / 'profile', root / 'data'
@@ -75,10 +82,10 @@ def request(connection, target, method, **params):
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 base_url = 'http://127.0.0.1:23129'
 env = {**os.environ, 'MOZ_HEADLESS': '1', 'HOST_CASE_PDF': str(args.pdf.resolve()),
-       'HOST_CASE_DEST': args.destination, 'XRE_CONSOLE_LOG': str(root / 'console.log')}
+       'HOST_CASE_DEST': args.destination, 'HOST_CASE_RUN_ID': run_id, 'XRE_CONSOLE_LOG': str(root / 'console.log')}
 with (root / 'process.log').open('wb') as log:
     process = subprocess.Popen([str(args.zotero.resolve()), '-headless', '-no-remote', '-profile', str(profile),
-                                '-start-debugger-server', '23130'], env=env, stdout=log, stderr=subprocess.STDOUT)
+                                '-start-debugger-server', '23130'], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     try:
         deadline = time.monotonic() + 120
         while True:
@@ -107,6 +114,8 @@ with (root / 'process.log').open('wb') as log:
                 time.sleep(.5)
                 continue
             status = json.loads(raw)
+            if status.get('runID') != run_id or status.get('destination') != args.destination:
+                raise RuntimeError(f'GUI status belongs to a different process or test case: {status}')
             if status['stage'] in ('passed', 'failed'):
                 (root / 'result.json').write_bytes(raw)
                 if status.get('hasScreenshot'):
@@ -120,10 +129,19 @@ with (root / 'process.log').open('wb') as log:
         else:
             raise TimeoutError('Isolated Zotero GUI test exceeded 120 seconds')
     finally:
-        if process.poll() is None:
-            process.terminate()
+        # The Linux launcher has child processes; stopping only its shell leaves the old HTTP server alive.
+        def group_exists():
             try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+                os.killpg(process.pid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+        if group_exists():
+            os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=5)
+        if group_exists():
+            os.killpg(process.pid, signal.SIGKILL)

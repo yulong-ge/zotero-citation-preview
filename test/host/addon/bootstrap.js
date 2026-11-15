@@ -21,6 +21,8 @@ function capture() {
 }
 async function startup() {
   await Zotero.initializationPromise;
+  status.runID = Services.env.get('HOST_CASE_RUN_ID');
+  status.destination = Services.env.get('HOST_CASE_DEST');
   Zotero.Server.Endpoints['/citation-preview-host/status'] = class {
     constructor() { this.supportedMethods = ['GET']; }
     async init(request) { return [200, 'application/json', JSON.stringify(status)]; }
@@ -96,7 +98,8 @@ async function run() {
   assert(status.trustedPointer, 'Pointer event was not trusted');
   assert(status.metadataRequests === 1, 'Expected exactly one fixture metadata request');
   const block = doc.querySelector('.cp-native-metadata');
-  assert(block.querySelector('h2').textContent === 'Visual citation testing study ' + destination.match(/\d+$/)[0], 'Wrong reference metadata');
+  status.title = block.querySelector('h2').textContent;
+  assert(status.title === 'Visual citation testing study ' + destination.match(/\d+$/)[0], 'Wrong reference metadata');
   await Zotero.Promise.delay(300);
   const card = block.getBoundingClientRect();
   status.card = card.toJSON();

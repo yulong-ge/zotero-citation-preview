@@ -8,7 +8,7 @@ Assertions cover correct reference/title, compact native-image replacement, poin
 
 ## Run in Linux Cloud
 
-Install `libgtk-3-0t64 libdbus-glib-1-2 libasound2t64 xvfb xauth`, `curl`, `xz-utils`, `zip`, and `uv`. The setup script requires Linux x86_64. Use a directory that does not already contain test results:
+Install `libgtk-3-0t64 libdbus-glib-1-2 libasound2t64 xvfb xauth fonts-noto-cjk`, `curl`, `xz-utils`, `zip`, and `uv`. The setup script requires Linux x86_64. Use a directory that does not already contain test results:
 
 ```bash
 scripts/setup-cloud-zotero.sh /tmp/citation-preview-zotero
@@ -23,4 +23,4 @@ xvfb-run -a uv run --python 3.12 python test/host/run.py \
   --output .local/cloud-gui/reference-44
 ```
 
-Ports 23129 (test status) and 23130 (local debugger) must be free; run cases sequentially. The runner stops only the child process it starts. Failed runs return a nonzero exit status and upload logs and a screenshot when a reader window exists. Profiles and data directories are excluded from uploaded artifacts.
+Ports 23129 (test status) and 23130 (local debugger) must be free; run cases sequentially. The runner stops its own process group, rejects occupied test ports, and checks a unique run ID and destination on each status response. Failed runs return a nonzero exit status and upload logs and a screenshot when a reader window exists. Profiles and data directories are excluded from uploaded artifacts.
