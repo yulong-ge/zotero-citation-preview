@@ -1,0 +1,52 @@
+name: Zotero GUI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-reader:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.9.21'
+      - name: Install native GUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-0t64 libdbus-glib-1-2 libasound2t64 xvfb xauth fonts-noto-cjk
+      - name: Install pinned Zotero
+        run: scripts/setup-cloud-zotero.sh "$RUNNER_TEMP/zotero"
+      - name: Build production addon and generated PDF
+        run: |
+          mkdir -p .local/cloud-gui
+          zip -q .local/cloud-gui/citation-preview.xpi manifest.json bootstrap.js core.js preview.js
+          uv run --python 3.12 --with reportlab==4.4.5 --with pikepdf==9.11.0 python test/host/make_fixture.py .local/cloud-gui/fixture.pdf
+      - name: Test native hover, metadata, dismissal and cleanup
+        run: |
+          for reference in 2 44; do
+            xvfb-run -a uv run --python 3.12 python test/host/run.py \
+              --zotero "$RUNNER_TEMP/zotero/Zotero_linux-x86_64/zotero" \
+              --xpi .local/cloud-gui/citation-preview.xpi \
+              --pdf .local/cloud-gui/fixture.pdf \
+              --destination "cite.fixture${reference}" \
+              --output ".local/cloud-gui/reference-${reference}"
+          done
+      - name: Upload GUI evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: zotero-gui-evidence
+          path: |
+            .local/cloud-gui/**/result.json
+            .local/cloud-gui/**/screenshot.png
+            .local/cloud-gui/**/process.log
+            .local/cloud-gui/**/console.log
+            .local/cloud-gui/fixture.pdf
+          if-no-files-found: warn
