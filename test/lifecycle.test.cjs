@@ -1,38 +1,30 @@
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const vm = require('node:vm');
-const { performance } = require('node:perf_hooks');
-test('idle reader adds no requests, preserves native callback, and restores on stop', async () => {
- let calls = 0, requests = 0, registered = 0, listeners = new Set();
- const native = () => { calls++; };
- const nodes = [];
- const doc = { createElement: tag => { const el = { tag, append(){}, remove(){this.removed=true;},setAttribute(){} }; nodes.push(el); return el; }, head:{append(){}}, querySelector:()=>null, querySelectorAll:()=>[], addEventListener:(name)=>listeners.add(name),removeEventListener:name=>listeners.delete(name),documentElement:{classList:{remove(){}}} };
- doc.defaultView = { performance, fetch(){requests++;},addEventListener:name=>listeners.add(name),removeEventListener:name=>listeners.delete(name),clearTimeout, setTimeout, AbortController };
- const view = { _onSetOverlayPopup: native };
- const nextNative=()=>{calls++;};
- const originalCreate=()=>({_onSetOverlayPopup:nextNative});
- const reader = { _internalReader:{_primaryView:view,_createView:originalCreate},_iframeWindow:{document:doc} };
- const Zotero = { getMainWindow:()=>doc.defaultView, Reader:{_readers:[reader],registerEventListener(){registered++;},unregisterEventListener(){registered--;}},logError:error=>{throw error;} };
- const context = { Zotero, Cu:{waiveXrays:value=>value,cloneInto:value=>value}, CitationCore: require('../core.js') }; vm.createContext(context);
- vm.runInContext(fs.readFileSync(require.resolve('../preview.js'),'utf8'),context);
- const addon = context.CitationPreview; addon.start();
- assert.notEqual(view._onSetOverlayPopup,native);
- view._onSetOverlayPopup({type:'citation',references:[{chars:[{c:'arXiv:2405.12399'}]}]});
- view._onSetOverlayPopup(null);
- await new Promise(resolve=>setTimeout(resolve,10));
- assert.equal(addon.metrics.showCalls,0,'A null popup cancels queued stale cards');
- const start=performance.now(); for(let i=0;i<10000;i++) view._onSetOverlayPopup(null);
- const elapsed=performance.now()-start;
- assert.equal(requests,0); assert.equal(calls,10002); assert.equal(registered,1);
- assert.ok(addon.metrics.maxHookMs<8,`Hook took ${addon.metrics.maxHookMs}ms`);
- const measurement=await addon.measureResponsiveness({durationMs:100,intervalMs:20});
- assert.ok(measurement.samples>=1); assert.ok(measurement.maxDelayMs>=0);
- const replacement=reader._internalReader._createView(true); reader._internalReader._primaryView=replacement;
- assert.notEqual(replacement._onSetOverlayPopup,nextNative);
- assert.equal(addon.debugHooks()[0].primaryHooked,true);
- assert.equal(addon.debugHooks()[0].hookedViewCount,1,'Old views are released after replacement');
- replacement._onSetOverlayPopup(null);
- addon.stop(); assert.equal(replacement._onSetOverlayPopup,nextNative); assert.equal(reader._internalReader._createView,originalCreate); assert.equal(view._onSetOverlayPopup,native); assert.equal(registered,0); assert.equal(listeners.size,0);
- console.log(JSON.stringify({iterations:10000,totalMs:elapsed,maxHookMs:addon.metrics.maxHookMs,idleNetworkRequests:requests}));
+const {test}=require('node:test');const assert=require('node:assert/strict');const {environment,reference,tick}=require('./dom-fixture.cjs');
+test('native view replacement is observed without wrapping createView or retaining obsolete view hooks',async()=>{
+ const e=environment();e.addon.start();const first=e.popup({type:'citation',references:[reference]});await tick();await tick();e.close(first);
+ const original=e.internal._createView;e.internal._primaryView={_onSetOverlayPopup(){},_getSelectableOverlay(){}};const output=e.internal._primaryView._onSetOverlayPopup;
+ const second=e.popup({type:'citation',references:[reference]});await tick();await tick();assert.ok(second.querySelector('.cp-native-metadata'));assert.equal(e.internal._createView,original);assert.equal(e.internal._primaryView._onSetOverlayPopup,output);assert.equal(e.urls.length,1);e.addon.stop();
+});
+test('reader DOM replacement disconnects the old observer and cleans only plugin-owned content',async()=>{
+ const e=environment();e.addon.start();const oldHost=e.popup({type:'reference',references:[reference]});await tick();await tick();
+ const other=environment();e.reader._iframeWindow.document=other.doc;e.Zotero.Reader.listener({reader:e.reader,doc:other.doc});await tick();
+ assert.equal(oldHost.isConnected,true);assert.equal(oldHost.querySelector('.cp-native-metadata'),null);assert.equal(e.observers.size,0);assert.equal(other.observers.size,1);e.addon.stop();assert.equal(other.observers.size,0);
+});
+test('no polling or new requests occur when unrelated reader DOM changes',async()=>{
+ const e=environment();e.addon.start();for(let i=0;i<100;i++){const node=e.doc.createElement('span');e.doc.body.append(node);node.remove();}await tick();assert.equal(e.urls.length,0);assert.equal(e.addon.metrics.pdfPageReads,0);assert.equal(e.addon.debugHooks()[0].activePopups,0);e.addon.stop();assert.equal(e.observers.size,0);
+});
+test('new-reader waived event document is normalized to the same privileged DOM used for existing readers',async()=>{
+ const e=environment();let waivedConstructors=0,normalized=0;
+ const plainClone=e.Cu.cloneInto;
+ const waivedWindow={...e.win,MutationObserver:class extends e.win.MutationObserver{
+  constructor(callback){super(callback);waivedConstructors++;}
+  observe(target,options){throw new TypeError("MutationObserver.observe: One of 'childList', 'attributes', 'characterData' must not be false.");}
+ }};
+ const waivedDoc=Object.create(e.doc);waivedDoc.defaultView=waivedWindow;
+ e.Cu.unwaiveXrays=value=>{if(value===waivedDoc){normalized++;return e.doc;}return value;};
+ e.Zotero.Reader._readers=[];e.addon.start();assert.equal(e.addon.debugHooks().length,0);
+ assert.doesNotThrow(()=>e.Zotero.Reader.listener({reader:e.reader,doc:waivedDoc}),'event doc must not construct a content-realm observer with opaque privileged options');
+ await tick();assert.ok(normalized>0);assert.equal(waivedConstructors,0);assert.equal(e.addon.debugHooks()[0].observedDocument,true);assert.equal(e.observers.size,1);
+ const host=e.popup({type:'citation',references:[reference]});await tick();await tick();assert.match(host.textContent,/Real source abstract fixture/);
+ e.Zotero.Reader.listener({reader:e.reader,doc:e.doc});await tick();assert.equal(e.observers.size,1,'ordinary and waived entry paths share one observer');
+ e.addon.stop();assert.equal(e.observers.size,0);assert.equal(e.Cu.cloneInto,plainClone,'DOM normalization does not change the PDF worker parameter boundary');
 });

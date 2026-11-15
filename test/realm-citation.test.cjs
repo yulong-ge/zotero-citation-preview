@@ -1,25 +1,72 @@
-const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');const {performance}=require('node:perf_hooks');
-const fixture=require('./rlvr-ref-fixture.json');
-class Element{constructor(tag){this.tag=tag;this.children=[];this.textContent='';}append(el){this.children.push(el);el.parent=this;}replaceChildren(){this.children=[];}remove(){if(this.parent)this.parent.children=this.parent.children.filter(x=>x!==this);}setAttribute(){}contains(el){return this===el||this.children.some(x=>x.contains(el));}}
-const contents=el=>[el.textContent,...el.children.map(contents)].join(' ');
-test('named citation crosses PDF worker with reader-realm parameters and exact target boundary',async()=>{
- const errors=[],owned=new WeakSet(),wrappers=new WeakMap();let pageReads=0,requests=0;
- const doc={createElement:tag=>new Element(tag),head:new Element('head'),body:new Element('body'),querySelector:()=>null,querySelectorAll:()=>[],addEventListener(){},removeEventListener(){},documentElement:{classList:{add(){},remove(){}}}};
- doc.defaultView={performance,setTimeout,clearTimeout,AbortController,DOMParser:class{parseFromString(){return {body:{textContent:'Metadata abstract from the mocked publisher.'}};}},addEventListener(){},removeEventListener(){}};
- const view={_onSetOverlayPopup(){},async _getPositionFromDestination(dest){assert.equal(dest,'cite.alonso2024diffusion');return {pageIndex:12,x:fixture.point[0],y:fixture.point[1]};}};
- const pdfWindow=view._iframeWindow={PDFViewerApplication:{}};
- const pageWrapper={};wrappers.set(pageWrapper,{async getAnnotations(){return [{rect:[1,2,3,4],dest:'cite.alonso2024diffusion'}];}});
- pdfWindow.PDFViewerApplication.pdfDocument={async getPage(n){assert.equal(n,3);return pageWrapper;},async getPageData(params){assert.ok(owned.has(params),'PDF worker requires an object cloned into the reader realm');pageReads++;return params.pageIndex===2?{chars:[{c:'2',rect:[1,2,3,4]}]}:{chars:fixture.chars};}};
- const reader={itemID:1,_internalReader:{_primaryView:view},_iframeWindow:{document:doc}};
- const Zotero={HTTP:{async request(method,url){requests++;assert.match(url,/api.crossref.org/);return {responseText:JSON.stringify({message:{items:[{title:['Diffusion for World Modeling: Visual Details Matter in Atari'],author:[{given:'Eloi',family:'Alonso'}],published:{'date-parts':[[2024]]},DOI:'10.52202/079017-1873',abstract:'<p>metadata</p>'}]}})};}},Reader:{_readers:[reader],registerEventListener(){},unregisterEventListener(){}},logError:e=>errors.push(e)};
- const Cu={waiveXrays:value=>wrappers.get(value)||value,cloneInto(value,target){assert.equal(target,pdfWindow);const copy=structuredClone(value);owned.add(copy);return copy;}};
- const context={Zotero,Cu,CitationCore:require('../core.js')};vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../preview.js'),'utf8'),context);const addon=context.CitationPreview;addon.start();
- view._onSetOverlayPopup({type:'internal-link',source:'annotation',position:{pageIndex:2,rects:[[1,2,3,4]]}});
- await new Promise(r=>setTimeout(r,30));
- assert.equal(errors.length,0,errors.map(e=>e.message).join(';'));assert.equal(pageReads,2);assert.equal(requests,1);assert.match(contents(doc.body),/Diffusion for World Modeling/);assert.doesNotMatch(contents(doc.body),/Kevin Black/);
- view._getPositionFromDestination=async()=>({pageIndex:12,rects:[fixture.point]});
- view._onSetOverlayPopup({type:'internal-link',source:'annotation',position:{pageIndex:2,rects:[[1,2,3,4]]}});
- await new Promise(r=>setTimeout(r,20));
- assert.match(contents(doc.body),/valid pageIndex\/x\/y/);assert.equal(requests,1,'Invalid destination shape does not query metadata');
- addon.stop();
+const {test}=require('node:test');const assert=require('node:assert/strict');
+const fixture=require('./rlvr-ref-fixture.json');const {environment,tick}=require('./dom-fixture.cjs');
+function pdf(e,{destination='cite.alonso2024diffusion',position={pageIndex:12,x:fixture.point[0],y:fixture.point[1]}}={}){
+ const wrappers=new WeakMap(),owned=new WeakSet();let reads=0;
+ const pageWrapper={};wrappers.set(pageWrapper,{getAnnotations:async()=>[{rect:[1,2,3,4],dest:destination}]});
+ const pdfWindow=e.view._iframeWindow={PDFViewerApplication:{}};
+ pdfWindow.PDFViewerApplication.pdfDocument={getPage:async n=>{assert.equal(n,3);return pageWrapper;},getPageData:async params=>{assert.ok(owned.has(params),'PDF worker parameters must belong to the reader realm');reads++;return params.pageIndex===2?{chars:[{c:'2',rect:[1,2,3,4]}]}:{chars:fixture.chars};}};
+ e.view._getPositionFromDestination=async()=>position;
+ e.Cu.waiveXrays=value=>wrappers.get(value)||value;
+ e.Cu.cloneInto=(value,target)=>{assert.equal(target,pdfWindow);const clone=structuredClone(value);owned.add(clone);return clone;};
+ return {get reads(){return reads;}};
+}
+const overlay=()=>({type:'internal-link',source:'annotation',position:{pageIndex:2,rects:[[1,2,3,4]]}});
+test('verified native cite preview uses waived PDF APIs, reader-realm worker parameters and exact numbered boundary',async()=>{
+ const e=environment(),state=pdf(e);e.addon.start();const host=e.popup(overlay());await tick();await tick();
+ assert.equal(e.errors.length,0);assert.equal(state.reads,2);assert.equal(e.urls.length,1);
+ assert.equal(host.querySelector('.cp-native-metadata').getAttribute('data-cp-citation-verified'),'true');assert.match(host.textContent,/Diffusion for World Modeling/);assert.doesNotMatch(host.textContent,/Kevin Black/);
+ e.close(host);await tick();const again=e.popup(overlay());await tick();await tick();assert.equal(e.urls.length,1);assert.equal(e.addon.metrics.cacheHits,1);assert.equal(state.reads,2);assert.ok(again.querySelector('.cp-native-metadata'));
+ e.addon.stop();assert.equal(again.classList.contains('cp-reference-enhanced'),false);assert.ok(again.querySelector('.inner'));
+});
+test('ordinary chapter/figure native preview keeps all native DOM and performs no metadata requests or text reads',async()=>{
+ const e=environment(),state=pdf(e,{destination:'figure.3'});e.addon.start();const host=e.popup(overlay()),inner=host.querySelector('.inner');await tick();await tick();
+ assert.equal(e.urls.length,0);assert.equal(state.reads,0);assert.equal(host.querySelector('.cp-native-metadata'),null);assert.equal(host.classList.contains('cp-reference-enhanced'),false);assert.equal(inner.isConnected,true);assert.equal(e.errors.length,0);e.addon.stop();
+});
+test('invalid named-destination API shape produces an explicit native-popup error and no metadata request',async()=>{
+ const e=environment();pdf(e,{position:{pageIndex:12,rects:[fixture.point]}});e.addon.start();const host=e.popup(overlay());await tick();await tick();
+ assert.match(host.textContent,/valid pageIndex\/x\/y/);assert.equal(e.urls.length,0);assert.equal(e.errors.length,1);assert.equal(host.classList.contains('cp-reference-enhanced'),false);e.addon.stop();
+});
+test('a numbered-boundary mismatch preserves the native preview and never queries metadata',async()=>{
+ const e=environment();pdf(e);const doc=e.view._iframeWindow.PDFViewerApplication.pdfDocument;const original=doc.getPageData;
+ doc.getPageData=async params=>params.pageIndex===2?{chars:[{c:'9',rect:[1,2,3,4]}]}:original(params);
+ e.addon.start();const host=e.popup(overlay());await tick();await tick();assert.equal(e.urls.length,0);assert.equal(e.errors.length,1);assert.match(host.textContent,/引用解析失败/);assert.equal(host.classList.contains('cp-reference-enhanced'),false);e.addon.stop();
+});
+test('native close during pending PDF text extraction cancels continuation before target-page or metadata work',async()=>{
+ const e=environment();pdf(e);let complete;
+ e.view._iframeWindow.PDFViewerApplication.pdfDocument.getPageData=()=>new Promise(resolve=>{complete=resolve;});
+ e.addon.start();const host=e.popup(overlay());await tick();assert.equal(e.addon.metrics.pdfPageReads,1);
+ e.close(host);await tick();assert.equal(e.addon.metrics.cancellations,1);
+ complete({chars:[{c:'2',rect:[1,2,3,4]}]});await tick();
+ assert.equal(e.urls.length,0);assert.equal(e.addon.metrics.pdfPageReads,1);assert.equal(e.doc.querySelector('.cp-native-metadata'),null);assert.equal(e.errors.length,0);e.addon.stop();
+});
+test('verified citation styling survives native React class rewrites and keeps its state on plugin-owned DOM',async()=>{
+ const e=environment();pdf(e);e.addon.start();const host=e.popup(overlay());await tick();await tick();
+ const metadata=host.querySelector('.cp-native-metadata');assert.equal(metadata.getAttribute('data-cp-citation-verified'),'true','verification state must be stored on our metadata node');
+ assert.equal(host.classList.contains('cp-reference-enhanced'),false,'never add state classes to the React-owned popup');
+ host.className='view-popup preview-popup page-popup-top-center';
+ assert.equal(metadata.getAttribute('data-cp-citation-verified'),'true');
+ assert.match(e.doc.head.textContent,/\.preview-popup:has\(> \.cp-native-metadata\[data-cp-citation-verified\]\)\s*>\s*\.inner\{display:none\}/);
+ e.addon.stop();assert.equal(host.className,'view-popup preview-popup page-popup-top-center');assert.equal(host.querySelector('.cp-native-metadata'),null);
+});
+test('verified preview has a stable bounded host and only its metadata owns scrolling',async()=>{
+ const e=environment();pdf(e);e.addon.start();const host=e.popup(overlay());await tick();await tick();
+ const css=e.doc.head.textContent;
+ const style=css.match(/\.preview-popup:has\(> \.cp-native-metadata\[data-cp-citation-verified\]\)\{([^}]+)\}/)[1];
+ assert.doesNotMatch(style,/overflow:auto/,'the native host must not add a second scrollbar');
+ assert.match(style,/height:min\(300px,40vh\)/);
+ assert.match(css,/\.preview-popup>\.cp-native-metadata\[data-cp-citation-verified\]\{height:100%;max-height:100%\}/);
+ e.addon.stop();
+});
+test('content-realm reference arrays reject privileged object returns while primitive character maps remain valid',async()=>{
+ const rejected=[];let characterMaps=0;
+ function contentArray(items){return new Proxy(items,{get(target,key,receiver){
+  if(key==='map')return callback=>contentArray(Array.prototype.map.call(target,(value,index)=>{const result=callback(value,index,receiver);if(result!==null&&(typeof result==='object'||typeof result==='function')){rejected.push(result);throw new Error('Permission denied to pass object to privileged code');}characterMaps++;return result;}));
+  if(key==='filter')return callback=>contentArray(Array.prototype.filter.call(target,callback));
+  return Reflect.get(target,key,receiver);
+ }});}
+ const e=environment();e.addon.start();
+ const nativeReference={chars:contentArray(require('./dom-fixture.cjs').reference.chars)};
+ const host=e.popup({type:'citation',references:contentArray([nativeReference])});await tick();await tick();
+ assert.equal(rejected.length,0,'content Array.map must never receive a privileged entry object');assert.ok(characterMaps>0,'native char maps still cross only primitive strings');
+ assert.equal(e.errors.length,0,e.errors.map(error=>error.message).join(';'));assert.equal(e.urls.length,1);assert.match(host.textContent,/Real source abstract fixture/);e.addon.stop();
 });

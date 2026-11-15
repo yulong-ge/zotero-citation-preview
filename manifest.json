@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
   "name": "Citation Preview",
-  "version": "0.1.9",
-  "description": "Lazy reference metadata cards for the Zotero PDF reader",
+  "version": "0.1.10",
+  "description": "Verified metadata and abstracts inside Zotero native citation popovers",
   "author": "Local development",
   "applications": {
     "zotero": {

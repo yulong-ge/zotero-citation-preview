@@ -1,26 +1,34 @@
-# Release process
+# Release process and validation
 
 Repository: https://github.com/yulong-ge/zotero-citation-preview
 
-The owner authorized public source and release publication. Version 0.1.9 adds automatic dismissal of hover cards. Installation is not complete until Zotero reports the published extension active and its reading interactions have been checked.
+The owner authorized public source and release publication. Development and acceptance run in an isolated Zotero profile so the owner's running reader is not interrupted.
 
 ## Release gate
 
-1. Verify the hover regression fails with the preceding implementation, then passes with the fix.
-2. Run `node --test test/*.test.cjs` under NVM Node 24 and inspect the full results.
-3. Commit the reviewed source and require CI green for that exact commit.
-4. Download that run's XPI artifact and verify its version, HTTPS update URL and exact four entries: `manifest.json`, `bootstrap.js`, `core.js`, `preview.js`.
-5. Hash the final XPI. Generate a separate `updates.json` with the addon ID, version, versioned release download URL, `sha256:` hash and `applications.zotero` compatibility. Generate `SHA256SUMS` last. Never embed the update manifest or checksums in the XPI.
-6. Publish the tagged release, then download and verify both assets over HTTPS.
-7. Install the published XPI and check version, `isActive=true`, `appDisabled=false`, citation content, dismissal and cleanup in Zotero.
+1. Demonstrate a failing regression against the preceding implementation, then pass it with the new implementation.
+2. Run the complete repository tests under NVM Node 24, syntax checks and `git diff --check`.
+3. Exercise native citation opening, metadata, dismissal and cleanup in an isolated Zotero host.
+4. Commit the reviewed source and require CI green for that exact commit.
+5. Download the CI XPI artifact and verify its version, HTTPS update URL and exact four entries: `manifest.json`, `bootstrap.js`, `core.js`, `preview.js`.
+6. Generate separate `updates.json` and `SHA256SUMS` assets from that final XPI. Never embed them in the XPI.
+7. Publish the tagged release, download the assets over HTTPS and verify their hashes. Install the published XPI in an isolated profile and check its version and activation state.
 
 Stable update endpoint: `https://github.com/yulong-ge/zotero-citation-preview/releases/latest/download/updates.json`.
 
-## Previous acceptance evidence
+## Version 0.1.10 evidence
 
-- Version 0.1.8: 13 tests passed under Node 24.19.0, including strict citation identity, book-versus-journal rejection, PDF worker realm boundaries and native HTTP cancellation.
-- Zotero 10.0.9: English references and a translated Chinese PDF displayed matching paper titles, authors and abstracts. Native keyboard activation of DIAMOND displayed all seven authors and its full published abstract. The incorrect Sutton book/journal match was rejected.
-- Version 0.1.7: two 15-second samples with the same page-down/page-up interaction produced enabled mean/p95/max timer delay 6.693/6.872/293.6 ms versus stopped 6.293/6.775/262.7 ms. Scrolling did not create metadata requests; a real cache hit was observed. This is a short comparison, not a long-term performance guarantee.
-- The owner subsequently confirmed mouse-hover opening works and reported that leaving the citation did not dismiss the card. Version 0.1.9 addresses that specific remaining interaction defect.
+The owner reported that 0.1.9 suppressed native hover in three PDFs. Earlier callback-level tests did not cover the complete pointer-to-popup path.
 
-Machine-specific logs, PDFs and historical reports are retained under ignored `.local/`, not published. Current validation should be recorded against the released commit; prior-version checks do not establish that a new release has passed.
+- Failing-first regression: the old implementation fails `native hit testing must never be wrapped`. A test using methods extracted from the installed Zotero reader also fails `actual native hit method identity must survive start`.
+- Real-host reproduction: in separate clean Zotero 10.0.9 profiles, Gecko-generated trusted pointer events at the same translated-PDF citation coordinate fail to open a popup with 0.1.9. With 0.1.10, native hit testing remains unchanged, the native popup opens and moving away closes it. No popup callback is injected.
+- Full suite: `node --test test/*.test.cjs .local/native-pointer.test.cjs` passes 32/32 tests under NVM Node 24.19.0. The public repository has 31 tests; one additional local test extracts the installed upstream implementation without copying vendor source into this repository. `node --check preview.js` and `git diff --check` pass.
+- Translated PDF: the verified DIAMOND citation resolves its title, seven authors and published abstract. The native page image is hidden. Only the source and target bibliography pages are read. Two metadata requests are made. The enhanced popup closes and stays closed.
+- Structured references: a test-only English PDF copy containing the main text and references, with link annotations removed, exercises Zotero's own citation recognition. The original PDF is unchanged. A native three-reference popup displays its bibliography and a working metadata selector; DIAMOND resolves correctly with zero plugin PDF-page reads. Native opening and dismissal remain functional.
+- Screenshot inspection exposed and verified fixes for image visibility, loading-to-result height changes, viewport clipping and duplicate scrollbars. Native popup classes and positioning functions are not rewritten.
+- A production-XPI test opens a new reader after installation. It exposed a different DOM wrapper on reader events; the implementation normalizes that wrapper so existing and newly opened readers use the same observer path.
+- A real-host structured-reference test exposed a compartment permission error. Its regression reproduces a content-array callback rejecting a privileged object; the implementation now constructs reference entries in its own compartment.
+
+The host tests use a separate profile, empty database and loopback-only development ports. Each run stops only its own child process. They do not manipulate the owner's Zotero windows, restart the personal instance or change its settings. Physical-mouse interaction in the owner's active profile and exhaustive PDF/theme coverage are not claimed.
+
+Machine-specific PDFs, screenshots, host logs and diagnostic scripts are retained under ignored `.local/`. Release notes record the final commit, CI run and published-asset verification.
