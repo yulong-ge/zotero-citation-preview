@@ -19,7 +19,8 @@ test('verified native cite preview uses waived PDF APIs, reader-realm worker par
  e.addon.stop();assert.equal(again.classList.contains('cp-reference-enhanced'),false);assert.ok(again.querySelector('.inner'));
 });
 test('ordinary chapter/figure native preview keeps all native DOM and performs no metadata requests or text reads',async()=>{
- const e=environment(),state=pdf(e,{destination:'figure.3'});e.addon.start();const host=e.popup(overlay()),inner=host.querySelector('.inner');await tick();await tick();
+ const e=environment(),state=pdf(e,{destination:'figure.3'});e.addon.start();const params=overlay();params.rect=[480,300,520,320];const host=e.popup(params),inner=host.querySelector('.inner');
+ host.style.transform='translate(123px, 456px)';host.parentNode.getBoundingClientRect=()=>({width:1000,height:800});Object.defineProperties(host,{offsetWidth:{value:200},offsetHeight:{value:100}});await tick();await tick();assert.equal(host.style.transform,'translate(123px, 456px)');
  assert.equal(e.urls.length,0);assert.equal(state.reads,0);assert.equal(host.querySelector('.cp-native-metadata'),null);assert.equal(host.classList.contains('cp-reference-enhanced'),false);assert.equal(inner.isConnected,true);assert.equal(e.errors.length,0);e.addon.stop();
 });
 test('invalid named-destination API shape produces an explicit native-popup error and no metadata request',async()=>{

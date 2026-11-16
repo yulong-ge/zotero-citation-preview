@@ -24,3 +24,13 @@ xvfb-run -a uv run --python 3.12 python test/host/run.py \
 ```
 
 Ports 23129 (test status) and 23130 (local debugger) must be free; run cases sequentially. The runner stops its own process group, rejects occupied test ports, and checks a unique run ID and destination on each status response. Failed runs return a nonzero exit status and upload logs and a screenshot when a reader window exists. Profiles and data directories are excluded from uploaded artifacts.
+
+## Transient placement regression
+
+The runner defaults to a real Zotero Gecko headless process. It does not establish visible-desktop rendering. The host samples native popup geometry after rendering frames and records opening, loading, terminal content and trusted pointer entry. Anchor-relative assertions run on every enhanced sample, including those before the terminal content appears. Pointer entry uses the popup-owning window and verifies elementFromPoint containment and a trusted event.
+
+Use `--case metadata-failure` for delayed empty metadata results. Generate a parser-error PDF with `make_fixture.py OUTPUT parser-failure`, then use `--case parser-failure`. Neither error case requires an h2. `--case multiple` supplies explicit grouped reference data through Zotero's native popup callback after trusted PDF hover, then selects the second reference. This grouped input is a test fixture, not a claim that the generated PDF naturally produces grouped references. Every run needs a fresh output directory.
+
+Named citation cards reserve their height, so delayed metadata success/failure may change content without changing outer dimensions. Recorded geometry must be inspected before claiming asynchronous size-change coverage. The reporter's original PDF remains unavailable.
+
+Success and metadata-failure cases explicitly perturb the native host width from 420 to 360 pixels after a delay, before returning metadata. This isolates asynchronous layout handling; the width perturbation is test input and is not attributed to the original PDF. The host records both measured widths. A session-scoped ResizeObserver handles such layout changes and disconnects at session teardown.

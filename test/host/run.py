@@ -17,6 +17,7 @@ parser.add_argument('--xpi', type=Path, required=True)
 parser.add_argument('--pdf', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--destination', default='cite.fixture2')
+parser.add_argument('--case', choices=['success','metadata-failure','parser-failure','multiple'], default='success')
 args = parser.parse_args()
 for path in (args.zotero, args.xpi, args.pdf):
     if not path.is_file():
@@ -82,7 +83,7 @@ def request(connection, target, method, **params):
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 base_url = 'http://127.0.0.1:23129'
 env = {**os.environ, 'MOZ_HEADLESS': '1', 'HOST_CASE_PDF': str(args.pdf.resolve()),
-       'HOST_CASE_DEST': args.destination, 'HOST_CASE_RUN_ID': run_id, 'XRE_CONSOLE_LOG': str(root / 'console.log')}
+       'HOST_CASE_MODE': args.case, 'HOST_CASE_DEST': args.destination, 'HOST_CASE_RUN_ID': run_id, 'XRE_CONSOLE_LOG': str(root / 'console.log')}
 with (root / 'process.log').open('wb') as log:
     process = subprocess.Popen([str(args.zotero.resolve()), '-headless', '-no-remote', '-profile', str(profile),
                                 '-start-debugger-server', '23130'], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
