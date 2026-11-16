@@ -5,6 +5,7 @@ var status = {
 var screenshot;
 var reader;
 var originalRequest;
+var restorePopupCallback;
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -31,6 +32,8 @@ async function startup() {
   await Zotero.initializationPromise;
   status.runID = Services.env.get("HOST_CASE_RUN_ID");
   status.destination = Services.env.get("HOST_CASE_DEST");
+  status.mode = Services.env.get("HOST_CASE_MODE") || "success";
+  status.geometry = [];
   Zotero.Server.Endpoints["/citation-preview-host/status"] = class {
     constructor() {
       this.supportedMethods = ["GET"];
@@ -90,7 +93,32 @@ async function run() {
       "Metadata request did not contain a fixture reference: " + raw,
     );
     status.metadataRequests = (status.metadataRequests || 0) + 1;
-    await Zotero.Promise.delay(200);
+    const trace = {
+      number,
+      time: Date.now(),
+      popupType: reader?._internalReader._state.primaryViewOverlayPopup?.type,
+    };
+    (status.requestTrace ||= []).push(trace);
+    options.cancellerReceiver?.(() => {
+      trace.cancelledAt = Date.now();
+    });
+    await Zotero.Promise.delay(700);
+    trace.completedAt = Date.now();
+    const host = reader?._iframeWindow.document.querySelector(".view-popup");
+    if (host && status.mode !== "multiple") {
+      // Explicit asynchronous layout perturbation, separate from metadata fixtures.
+      status.resizeBefore = host.getBoundingClientRect().toJSON();
+      await new Promise((resolve) =>
+        host.ownerDocument.defaultView.requestAnimationFrame(() => {
+          host.style.width = "360px";
+          resolve();
+        }),
+      );
+      await Zotero.Promise.delay(80);
+      status.resizeAfter = host.getBoundingClientRect().toJSON();
+    }
+    if (status.mode === "metadata-failure")
+      return { responseText: JSON.stringify({ message: { items: [] } }) };
     return {
       responseText: JSON.stringify({
         message: {
@@ -153,45 +181,235 @@ async function run() {
   );
   const doc = reader._iframeWindow.document;
   const popup = () => reader._internalReader._state.primaryViewOverlayPopup;
+  let sampling = true;
+  let phase = "opening";
+  const sample = () => {
+    const host = doc.querySelector(".view-popup");
+    if (!host) return;
+    const box = host.getBoundingClientRect();
+    const bounds = host.parentNode.getBoundingClientRect();
+    const anchor = popup()?.rect;
+    status.geometry.push({
+      phase,
+      time: Date.now(),
+      box: box.toJSON(),
+      bounds: bounds.toJSON(),
+      anchor: anchor && Array.from(anchor),
+      transform: host.style.transform,
+      position: doc.defaultView.getComputedStyle(host).position,
+      left: doc.defaultView.getComputedStyle(host).left,
+      metadata: !!host.querySelector(".cp-native-metadata"),
+      text: host.querySelector(".cp-native-metadata")?.textContent,
+    });
+  };
+  (async () => {
+    while (sampling) {
+      await new Promise((resolve) =>
+        doc.defaultView.requestAnimationFrame(() =>
+          doc.defaultView.setTimeout(resolve, 0),
+        ),
+      );
+      if (sampling) sample();
+    }
+  })();
+  if (status.mode === "multiple") {
+    // The grouped fixture must be established before the first callback reaches
+    // Zotero/production observers; replacing an already-open hover races its request.
+    const original = view._onSetOverlayPopup;
+    const references = [44, 2].map((number) => ({
+      chars: [
+        ...`[${number}] Jane Researcher. Visual citation testing study ${number}. 2024.`,
+      ].map((c) => ({ c })),
+    }));
+    const callback = (value) => {
+      if (value?.type === "internal-link") {
+        status.groupedInjection = {
+          time: Date.now(),
+          inputType: value.type,
+          requestsBefore: status.metadataRequests || 0,
+        };
+        return original(
+          Cu.cloneInto(
+            { type: "citation", rect: Array.from(value.rect), references },
+            view._iframeWindow,
+          ),
+        );
+      }
+      return original(value);
+    };
+    view._onSetOverlayPopup = callback;
+    restorePopupCallback = () => {
+      if (view._onSetOverlayPopup === callback)
+        view._onSetOverlayPopup = original;
+    };
+  }
   status.stage = "hovering";
   status.sourceRect = Array.from(rect);
   move((rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2);
   await waitFor(() => popup(), "Trusted hover did not open the native popup");
   status.nativePopupType = popup().type;
   await waitFor(
-    () => doc.querySelector(".cp-native-metadata h2"),
-    "Metadata card did not resolve: inspect screenshot",
+    () => doc.querySelector(".cp-native-metadata"),
+    "No enhanced popup",
   );
+  phase = "loading";
+  sample();
+  const terminal = () => {
+    const block = doc.querySelector(".cp-native-metadata");
+    return ["success", "multiple"].includes(status.mode)
+      ? block?.querySelector("h2")
+      : /引用(?:查询|解析)失败/.test(block?.textContent || "");
+  };
+  await waitFor(
+    terminal,
+    "Expected terminal success/error card did not appear",
+  );
+  phase = "terminal";
+  await Zotero.Promise.delay(150);
+  sample();
   assert(status.trustedPointer, "Pointer event was not trusted");
-  assert(
-    status.metadataRequests === 1,
-    "Expected exactly one fixture metadata request",
-  );
   const block = doc.querySelector(".cp-native-metadata");
-  status.title = block.querySelector("h2").textContent;
+  status.title = block.querySelector("h2")?.textContent;
   assert(
-    status.title ===
-      "Visual citation testing study " + destination.match(/\d+$/)[0],
-    "Wrong reference metadata",
+    ["success", "multiple"].includes(status.mode)
+      ? status.title ===
+          "Visual citation testing study " + destination.match(/\d+$/)[0]
+      : !status.title,
+    "Wrong terminal content",
   );
-  await Zotero.Promise.delay(300);
-  const card = block.getBoundingClientRect();
-  status.card = card.toJSON();
+  if (status.mode === "multiple") {
+    phase = "switch-loading";
+    const choice = doc.querySelectorAll(".cp-reference-choice")[1];
+    assert(choice, "Missing second reference choice");
+    choice.click();
+    sample();
+    await waitFor(
+      () =>
+        doc.querySelector(".cp-native-metadata h2")?.textContent ===
+        "Visual citation testing study 2",
+      "Switch did not resolve second paper",
+    );
+    phase = "switch-complete";
+    await Zotero.Promise.delay(150);
+    sample();
+    status.switchedTitle = doc.querySelector(
+      ".cp-native-metadata h2",
+    ).textContent;
+  }
+  const expectedRequests =
+    status.mode === "parser-failure" ? 0 : status.mode === "multiple" ? 2 : 1;
+  status.expectedMetadataRequests = expectedRequests;
+  if (status.mode === "multiple") {
+    assert(
+      status.groupedInjection?.requestsBefore === 0,
+      "Metadata request started before grouped fixture initialization",
+    );
+    assert(
+      status.requestTrace.length === 2 &&
+        status.requestTrace.every(
+          (x) => x.popupType === "citation" && !x.cancelledAt,
+        ),
+      "Grouped fixture leaked a native preflight request or cancellation",
+    );
+  }
+  assert(
+    (status.metadataRequests || 0) === expectedRequests,
+    "Unexpected fixture metadata request count",
+  );
+  status.card = block.getBoundingClientRect().toJSON();
   status.viewport = {
     width: doc.defaultView.innerWidth,
     height: doc.defaultView.innerHeight,
   };
+  const inner = block.parentNode.querySelector(".inner");
+  assert(inner, "Native popup inner is missing");
+  status.nativeInnerDisplay = doc.defaultView.getComputedStyle(inner).display;
   assert(
-    card.width <= 422 &&
-      card.height <= Math.min(300, doc.defaultView.innerHeight * 0.4) + 2,
-    "Named reference card exceeds compact bounds",
-  );
-  assert(
-    doc.defaultView.getComputedStyle(block.parentNode.querySelector(".inner"))
-      .display === "none",
+    status.nativeInnerDisplay === "none",
     "Native reference image remains expanded",
   );
+  if (status.mode !== "multiple") {
+    assert(
+      status.card.width <= 422 &&
+        status.card.height <= Math.min(300, status.viewport.height * 0.4) + 2,
+      "Named reference card exceeds compact bounds",
+    );
+  } else {
+    assert(
+      status.card.width <= 432 &&
+        status.card.height <= Math.min(360, status.viewport.height * 0.55) + 2,
+      "Grouped reference card exceeds bounded layout",
+    );
+  }
+  // Use the popup-owning document and its own window coordinates, not PDF iframe coordinates.
+  const host = block.parentNode,
+    outer = Cu.unwaiveXrays(doc.defaultView);
+  const before = host.getBoundingClientRect(),
+    x = before.left + before.width / 2,
+    y = before.top + before.height / 2;
+  const hit = doc.elementFromPoint(x, y);
+  status.pointerHit = {
+    x,
+    y,
+    tag: hit?.tagName,
+    inside: !!hit && host.contains(hit),
+  };
+  assert(
+    status.pointerHit.inside,
+    "Pointer entry coordinates do not hit the popup",
+  );
+  let trustedEntry = false;
+  host.addEventListener(
+    "pointermove",
+    (event) => {
+      trustedEntry = event.isTrusted;
+    },
+    { once: true },
+  );
+  phase = "pointer-entry";
+  outer.windowUtils.sendMouseEventToWindow("mousemove", x, y, 0, 0, 0);
+  await Zotero.Promise.delay(150);
+  sample();
+  status.trustedEntry = trustedEntry;
+  assert(trustedEntry, "Popup did not receive trusted pointer entry");
+  const after = host.getBoundingClientRect();
+  status.pointerShift = {
+    x: after.left - before.left,
+    y: after.top - before.top,
+  };
+  sampling = false;
   capture();
+  assert(
+    Math.hypot(status.pointerShift.x, status.pointerShift.y) <= 2,
+    "Popup jumped on pointer entry",
+  );
+  const enhanced = status.geometry.filter((s) => s.metadata);
+  assert(enhanced.length >= 3, "Missing enhanced geometry samples");
+  for (const point of enhanced) {
+    const { box, bounds, anchor } = point;
+    assert(anchor?.length === 4, "Missing native anchor");
+    const center = (anchor[0] + anchor[2]) / 2;
+    let expected = center - box.width / 2;
+    const below = anchor[3] + box.height + 10 < bounds.height,
+      above = anchor[1] - 10 - box.height > 0;
+    if (expected < 0) expected = anchor[2] + 10;
+    else if (expected + box.width > bounds.width)
+      expected = anchor[0] - box.width - 10;
+    else if (!below && !above)
+      expected =
+        anchor[0] >= bounds.width / 2
+          ? anchor[0] - box.width - 10
+          : anchor[2] + 10;
+    expected = Math.max(10, Math.min(expected, bounds.width - box.width - 10));
+    assert(
+      Math.abs(box.left - bounds.left - expected) <= 2,
+      "Transient stale horizontal placement: " + JSON.stringify(point),
+    );
+    assert(
+      box.top >= bounds.top - 2 && box.bottom <= bounds.bottom + 2,
+      "Popup outside vertical bounds",
+    );
+  }
   const page =
     view._iframeWindow.PDFViewerApplication.pdfViewer._pages[0].div.getBoundingClientRect();
   move(Math.max(10, page.left + 10), Math.max(10, page.top + 10));
@@ -205,6 +423,7 @@ async function run() {
     "Popup reappeared after pointer exit",
   );
   status.closedAfterPointerExit = true;
+  restorePopupCallback?.();
   controller.stop();
   assert(
     !Zotero.Reader._registeredListeners.some(
@@ -216,6 +435,7 @@ async function run() {
   status.stage = "passed";
 }
 function shutdown() {
+  restorePopupCallback?.();
   if (originalRequest) Zotero.HTTP.request = originalRequest;
   delete Zotero.Server.Endpoints["/citation-preview-host/status"];
   delete Zotero.Server.Endpoints["/citation-preview-host/screenshot"];

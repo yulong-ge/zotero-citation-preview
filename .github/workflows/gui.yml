@@ -11,7 +11,7 @@ permissions:
 jobs:
   native-reader:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -28,9 +28,10 @@ jobs:
       - name: Build production addon and generated PDF
         run: |
           mkdir -p .local/cloud-gui
-          uv run python scripts/build.py
-          cp dist/citation-preview-*.xpi .local/cloud-gui/citation-preview.xpi
+          archive="$(uv run python scripts/build.py)"
+          cp "$archive" .local/cloud-gui/citation-preview.xpi
           uv run --locked python test/host/make_fixture.py .local/cloud-gui/fixture.pdf
+          uv run --locked python test/host/make_fixture.py .local/cloud-gui/parser-failure.pdf parser-failure
       - name: Test native hover, metadata, dismissal and cleanup
         run: |
           for reference in 2 44; do
@@ -40,6 +41,17 @@ jobs:
               --pdf .local/cloud-gui/fixture.pdf \
               --destination "cite.fixture${reference}" \
               --output ".local/cloud-gui/reference-${reference}"
+          done
+          for case in metadata-failure parser-failure multiple; do
+            pdf=.local/cloud-gui/fixture.pdf
+            if [ "$case" = parser-failure ]; then pdf=.local/cloud-gui/parser-failure.pdf; fi
+            xvfb-run -a uv run --locked python test/host/run.py \
+              --case "$case" \
+              --zotero "$RUNNER_TEMP/zotero/Zotero_linux-x86_64/zotero" \
+              --xpi .local/cloud-gui/citation-preview.xpi \
+              --pdf "$pdf" \
+              --destination cite.fixture44 \
+              --output ".local/cloud-gui/${case}"
           done
       - name: Upload GUI evidence
         if: always()
@@ -52,4 +64,5 @@ jobs:
             .local/cloud-gui/**/process.log
             .local/cloud-gui/**/console.log
             .local/cloud-gui/fixture.pdf
+            .local/cloud-gui/parser-failure.pdf
           if-no-files-found: warn

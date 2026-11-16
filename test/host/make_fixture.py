@@ -26,7 +26,7 @@ for number, y in [(2, 660), (3, 620), (44, 420), (45, 380)]:
     pdf.drawString(
         60,
         y,
-        f"[{number}] Jane Researcher. Visual citation testing study {number}. 2024.",
+        f"[{99 if len(sys.argv) > 2 and sys.argv[2] == 'parser-failure' and number == 44 else number}] Jane Researcher. Visual citation testing study {number}. 2024.",
     )
 pdf.save()
 

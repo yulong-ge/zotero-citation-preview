@@ -87,10 +87,19 @@ test("ordinary chapter/figure native preview keeps all native DOM and performs n
   const e = environment(),
     state = pdf(e, { destination: "figure.3" });
   e.addon.start();
-  const host = e.popup(overlay()),
+  const params = overlay();
+  params.rect = [480, 300, 520, 320];
+  const host = e.popup(params),
     inner = host.querySelector(".inner");
+  host.style.transform = "translate(123px, 456px)";
+  host.parentNode.getBoundingClientRect = () => ({ width: 1000, height: 800 });
+  Object.defineProperties(host, {
+    offsetWidth: { value: 200 },
+    offsetHeight: { value: 100 },
+  });
   await tick();
   await tick();
+  assert.equal(host.style.transform, "translate(123px, 456px)");
   assert.equal(e.urls.length, 0);
   assert.equal(state.reads, 0);
   assert.equal(host.querySelector(".cp-native-metadata"), null);
