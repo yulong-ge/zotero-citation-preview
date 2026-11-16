@@ -1,12 +1,17 @@
 """Build and verify the four-file Zotero addon; release assets stay separate."""
 
 import json
+import re
 from pathlib import Path
 import zipfile
 
 root = Path(__file__).resolve().parents[1]
 names = ("manifest.json", "bootstrap.js", "core.js", "preview.js")
 manifest = json.loads((root / "manifest.json").read_text())
+if manifest["manifest_version"] != 2:
+    raise ValueError("Expected manifest_version 2")
+if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", manifest["version"]):
+    raise ValueError("Expected a three-part numeric addon version")
 if manifest["applications"]["zotero"]["id"] != "citation-preview@local":
     raise ValueError("Unexpected Zotero addon ID")
 if (
