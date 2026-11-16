@@ -641,7 +641,7 @@ var CitationPreview = (() => {
       .catch(report);
   }
   return {
-    version: "0.1.11",
+    version: "0.1.12",
     build: "native-popup-dom-enhancement",
     metrics,
     debugHooks() {
