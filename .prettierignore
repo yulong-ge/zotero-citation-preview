@@ -1,0 +1,7 @@
+.local/
+.venv/
+node_modules/
+dist/
+uv.lock
+package-lock.json
+.agents/notes/archived/

@@ -13,9 +13,11 @@ Install `libgtk-3-0t64 libdbus-glib-1-2 libasound2t64 xvfb xauth fonts-noto-cjk`
 ```bash
 scripts/setup-cloud-zotero.sh /tmp/citation-preview-zotero
 mkdir -p .local/cloud-gui
-zip -q .local/cloud-gui/citation-preview.xpi manifest.json bootstrap.js core.js preview.js
-uv run --python 3.12 --with reportlab==4.4.5 --with pikepdf==9.11.0 python test/host/make_fixture.py .local/cloud-gui/fixture.pdf
-xvfb-run -a uv run --python 3.12 python test/host/run.py \
+uv sync --locked
+archive="$(uv run python scripts/build.py)"
+cp "$archive" .local/cloud-gui/citation-preview.xpi
+uv run --locked python test/host/make_fixture.py .local/cloud-gui/fixture.pdf
+xvfb-run -a uv run --locked python test/host/run.py \
   --zotero /tmp/citation-preview-zotero/Zotero_linux-x86_64/zotero \
   --xpi .local/cloud-gui/citation-preview.xpi \
   --pdf .local/cloud-gui/fixture.pdf \

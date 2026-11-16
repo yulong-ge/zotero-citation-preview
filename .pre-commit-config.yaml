@@ -1,0 +1,70 @@
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+repos:
+  - repo: local
+    hooks:
+      - id: staged-prettier
+        name: Format staged JavaScript and documents
+        entry: node_modules/.bin/git-format-staged --formatter "node_modules/.bin/prettier --stdin-filepath {}"
+        language: system
+        files: '\.(js|cjs|mjs|md|json|jsonc|yml|yaml)$'
+        exclude: '^\.agents/notes/archived/'
+        stages: [manual]
+      - id: staged-toml
+        name: Format staged TOML
+        entry: node_modules/.bin/git-format-staged --formatter "node_modules/.bin/taplo fmt -"
+        language: system
+        types: [toml]
+        files: '\.toml$'
+        stages: [manual]
+      - id: staged-python
+        name: Format staged Python
+        entry: node_modules/.bin/git-format-staged --formatter "ruff format --stdin-filename {} -"
+        language: system
+        types: [python]
+        stages: [manual]
+      - id: staged-shell
+        name: Format staged shell
+        entry: node_modules/.bin/git-format-staged --formatter "shfmt -i 2"
+        language: system
+        types: [shell]
+        stages: [manual]
+      - id: eslint
+        name: JavaScript lint
+        entry: node_modules/.bin/eslint
+        language: system
+        files: '\.(js|cjs|mjs)$'
+      - id: python-lint
+        name: Python lint
+        entry: ruff check
+        language: system
+        types: [python]
+      - id: markdown-lint
+        name: Markdown lint
+        entry: node_modules/.bin/markdownlint-cli2
+        language: system
+        types: [markdown]
+        exclude: '^\.agents/notes/archived/'
+      - id: shell-lint
+        name: Shell lint
+        entry: shellcheck
+        language: system
+        types: [shell]
+      - id: actions
+        name: GitHub Actions lint
+        entry: actionlint
+        language: system
+        files: '^\.github/workflows/.*\.yml$'
+      - id: contracts
+        name: Staged document contracts
+        entry: python scripts/staged_checks.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: project-check
+        name: Project checks before push
+        entry: npm run check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

@@ -1,20 +1,10 @@
-# Release process and validation
+# Release validation evidence
 
-Repository: https://github.com/yulong-ge/zotero-citation-preview
+These observations describe the listed versions and platforms; they are not claims about every current PDF. Historical local scripts and original evidence now live in ignored `.local/archive/2026-11-15/`. Commands below preserve the paths used at the time. Current reproducible GUI instructions are in the [host harness](../test/host/README.md).
 
-The owner authorized public source and release publication. Development and acceptance run in an isolated Zotero profile so the owner's running reader is not interrupted.
+## Cloud GUI baseline
 
-## Release gate
-
-1. Demonstrate a failing regression against the preceding implementation, then pass it with the new implementation.
-2. Run the complete repository tests under NVM Node 24, syntax checks and `git diff --check`.
-3. Exercise native citation opening, metadata, dismissal and cleanup in an isolated Zotero host.
-4. Commit the reviewed source and require CI green for that exact commit.
-5. Download the CI XPI artifact and verify its version, HTTPS update URL and exact four entries: `manifest.json`, `bootstrap.js`, `core.js`, `preview.js`.
-6. Generate separate `updates.json` and `SHA256SUMS` assets from that final XPI. Never embed them in the XPI.
-7. Publish the tagged release, download the assets over HTTPS and verify their hashes. Install the published XPI in an isolated profile and check its version and activation state.
-
-Stable update endpoint: `https://github.com/yulong-ge/zotero-citation-preview/releases/latest/download/updates.json`.
+The native Linux Zotero 10.0.8 harness passed at commit `36db51600d2356bb75441f61b0fc4dd5268eb87a`, in [run 43735650152](https://github.com/yulong-ge/zotero-citation-preview/actions/runs/43735650152). Independent cases selected references 2 and 44 with distinct run IDs, correct metadata titles, trusted pointer events, dismissal and listener cleanup. Screenshots were inspected. Metadata was a deterministic fixture; this does not establish live API availability or macOS visual parity.
 
 ## Version 0.1.11 evidence
 

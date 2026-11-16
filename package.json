@@ -1,0 +1,28 @@
+{
+  "name": "zotero-citation-preview",
+  "private": true,
+  "version": "0.0.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "build": "uv run python scripts/build.py",
+    "format": "prettier --write . && uv run ruff format . && uv run shfmt -w -i 2 scripts/*.sh && taplo fmt pyproject.toml",
+    "format:check": "prettier --check . && uv run ruff format --check . && uv run shfmt -d -i 2 scripts/*.sh && taplo fmt --check pyproject.toml",
+    "lint:js": "eslint .",
+    "lint:md": "markdownlint-cli2 \"**/*.md\"",
+    "check:docs": "uv run python scripts/check_docs.py && uv run python scripts/notes_guard.py --root . && uv run python scripts/check_archive.py",
+    "check": "npm run format:check && npm run lint:js && npm run lint:md && uv run ruff check . && uv run shellcheck scripts/*.sh && uv run actionlint && npm run check:docs && uv run python -m unittest discover -s scripts/tests && npm test && npm run build",
+    "setup:hooks": "uv run python scripts/setup.py"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.1",
+    "@taplo/cli": "0.7.0",
+    "eslint": "9.39.1",
+    "git-format-staged": "4.0.2",
+    "globals": "16.5.0",
+    "markdownlint-cli2": "0.23.3",
+    "prettier": "3.9.6"
+  }
+}

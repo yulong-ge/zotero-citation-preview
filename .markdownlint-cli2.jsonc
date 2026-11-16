@@ -1,0 +1,17 @@
+{
+  "config": {
+    "MD013": false,
+    "MD024": {
+      "siblings_only": true,
+    },
+    "MD029": false,
+    "MD060": false,
+  },
+  "ignores": [
+    "node_modules/**",
+    ".venv/**",
+    ".local/**",
+    ".claude/**",
+    ".agents/notes/archived/**",
+  ],
+}

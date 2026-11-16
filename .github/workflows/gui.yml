@@ -16,7 +16,9 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
         with:
-          version: '0.9.21'
+          version: "0.11.16"
+      - name: Install locked dependencies
+        run: uv sync --locked
       - name: Install native GUI dependencies
         run: |
           sudo apt-get update
@@ -26,13 +28,14 @@ jobs:
       - name: Build production addon and generated PDF
         run: |
           mkdir -p .local/cloud-gui
-          zip -q .local/cloud-gui/citation-preview.xpi manifest.json bootstrap.js core.js preview.js
-          uv run --python 3.12 --with reportlab==4.4.5 --with pikepdf==9.11.0 python test/host/make_fixture.py .local/cloud-gui/fixture.pdf
-          uv run --python 3.12 --with reportlab==4.4.5 --with pikepdf==9.11.0 python test/host/make_fixture.py .local/cloud-gui/parser-failure.pdf parser-failure
+          archive="$(uv run python scripts/build.py)"
+          cp "$archive" .local/cloud-gui/citation-preview.xpi
+          uv run --locked python test/host/make_fixture.py .local/cloud-gui/fixture.pdf
+          uv run --locked python test/host/make_fixture.py .local/cloud-gui/parser-failure.pdf parser-failure
       - name: Test native hover, metadata, dismissal and cleanup
         run: |
           for reference in 2 44; do
-            xvfb-run -a uv run --python 3.12 python test/host/run.py \
+            xvfb-run -a uv run --locked python test/host/run.py \
               --zotero "$RUNNER_TEMP/zotero/Zotero_linux-x86_64/zotero" \
               --xpi .local/cloud-gui/citation-preview.xpi \
               --pdf .local/cloud-gui/fixture.pdf \
@@ -42,7 +45,7 @@ jobs:
           for case in metadata-failure parser-failure multiple; do
             pdf=.local/cloud-gui/fixture.pdf
             if [ "$case" = parser-failure ]; then pdf=.local/cloud-gui/parser-failure.pdf; fi
-            xvfb-run -a uv run --python 3.12 python test/host/run.py \
+            xvfb-run -a uv run --locked python test/host/run.py \
               --case "$case" \
               --zotero "$RUNNER_TEMP/zotero/Zotero_linux-x86_64/zotero" \
               --xpi .local/cloud-gui/citation-preview.xpi \
