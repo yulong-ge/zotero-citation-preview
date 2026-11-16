@@ -1,37 +1,34 @@
 name: CI
-
 on:
   push:
   pull_request:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
-          node-version: '24'
-      - name: Test
-        run: node --test test/*.test.cjs
-      - name: Build and validate XPI
-        shell: bash
+          node-version: "24"
+          cache: npm
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.16"
+      - name: Install locked dependencies
         run: |
-          set -euo pipefail
-          jq -e '.manifest_version == 2 and .applications.zotero.id == "citation-preview@local" and .applications.zotero.update_url == "https://github.com/yulong-ge/zotero-citation-preview/releases/latest/download/updates.json" and (.version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' manifest.json
-          version="$(jq -er .version manifest.json)"
-          archive="citation-preview-${version}.xpi"
-          test ! -e "$archive"
-          zip -q "$archive" manifest.json bootstrap.js core.js preview.js
-          unzip -t "$archive"
-          diff <(printf '%s\n' bootstrap.js core.js manifest.json preview.js | sort) <(unzip -Z1 "$archive" | sort)
-          diff <(jq -S . manifest.json) <(unzip -p "$archive" manifest.json | jq -S .)
+          npm ci
+          uv sync --locked
+      - name: Check and build
+        env:
+          MAINTENANCE_BASE: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+        run: npm run check
       - uses: actions/upload-artifact@v6
         with:
           name: citation-preview-xpi
-          path: citation-preview-*.xpi
+          path: dist/citation-preview-*.xpi
           if-no-files-found: error
