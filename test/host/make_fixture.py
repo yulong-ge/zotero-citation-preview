@@ -22,7 +22,7 @@ pdf.drawString(60, 730, 'References')
 pdf.setFont('Helvetica', 11)
 for number, y in [(2, 660), (3, 620), (44, 420), (45, 380)]:
     pdf.bookmarkHorizontalAbsolute(f'cite.fixture{number}', y + 10, left=60)
-    pdf.drawString(60, y, f'[{number}] Jane Researcher. Visual citation testing study {number}. 2024.')
+    pdf.drawString(60, y, f'[{99 if len(sys.argv)>2 and sys.argv[2]=="parser-failure" and number==44 else number}] Jane Researcher. Visual citation testing study {number}. 2024.')
 pdf.save()
 
 # PDF.js must receive a named destination, not ReportLab's inline destination array.

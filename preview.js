@@ -115,8 +115,39 @@ var CitationPreview = (() => {
   function endSession(s,slot) {
     const session=s.sessions.get(slot);
     if(!session)return;
-    s.sessions.delete(slot);cancelRequest(session);
+    s.sessions.delete(slot);cancelRequest(session);session.resizeObserver?.disconnect();
     session.block?.remove();
+  }
+  // Zotero positions a view popup only when React renders it. Adding our card later
+  // changes the popup's dimensions without causing another native render, so retain
+  // Zotero's placement algorithm for that post-render resize.
+  function positionPopup(session) {
+    if(!current(session)||!session.block)return;
+    const {host,popup}=session,rect=popup.rect;
+    if(!rect||rect.length!==4||!host.parentNode?.getBoundingClientRect)return;
+    const padding=10,width=host.offsetWidth,height=host.offsetHeight;
+    const bounds=host.parentNode.getBoundingClientRect();
+    const anchorX=rect[0]+(rect[2]-rect[0])/2,anchorY=rect[1]+(rect[3]-rect[1])/2;
+    const sideLeft=placeLeft=>{
+      const edge=placeLeft?rect[0]-width-padding:rect[2]+padding;
+      if(placeLeft)return edge<padding?anchorX-width-padding:edge;
+      return edge+width>bounds.width-padding?anchorX+padding:edge;
+    };
+    const sideTop=()=>{
+      let top=anchorY-height/2;
+      if(rect[3]-rect[1]>height)top=Math.min(Math.max(top,rect[1]),rect[3]-height);
+      return top;
+    };
+    let left=anchorX-width/2,top,side;
+    if(left<0){side='right';left=sideLeft(false);top=sideTop();}
+    else if(left+width>bounds.width){side='left';left=sideLeft(true);top=sideTop();}
+    else if(rect[3]+height+padding<bounds.height){side='bottom';top=rect[3]+padding;}
+    else if(rect[1]-padding-height>0){side='top';top=rect[1]-padding-height;}
+    else {const placeLeft=rect[0]>=bounds.width/2;side=placeLeft?'left':'right';left=sideLeft(placeLeft);top=sideTop();}
+    left=Math.max(padding,Math.min(left,bounds.width-width-padding));
+    top=Math.max(padding,Math.min(top,bounds.height-height-padding));
+    for(const name of ['top','bottom','left','right']){const cls=`page-popup-${name}-center`;if(name===side)host.classList.add(cls);else host.classList.remove(cls);}
+    host.style.transform=`translate(${left}px, ${top}px)`;
   }
   function metadataBlock(session,entries) {
     const started=session.state.win.performance.now();
@@ -145,6 +176,8 @@ var CitationPreview = (() => {
       original.hidden=true;
       session.original=text(doc,'p','',original);session.original.className='cp-original';
       session.host.append(block);
+      if(session.state.win.ResizeObserver){session.resizeObserver=new session.state.win.ResizeObserver(()=>positionPopup(session));session.resizeObserver.observe(session.host);}
+      positionPopup(session);
     } finally {
       const elapsed=session.state.win.performance.now()-started;
       metrics.showCalls++;metrics.totalShowMs+=elapsed;metrics.maxShowMs=Math.max(metrics.maxShowMs,elapsed);
@@ -161,6 +194,7 @@ var CitationPreview = (() => {
     if(session.scroller)session.scroller.scrollTop=0;
     original.textContent=entry.raw||'';session.details.hidden=!entry.raw;
     body.replaceChildren();text(s.doc,'p','正在核对引用及获取摘要…',body);
+    positionPopup(session);
     try {
       const result=await resolve(s,entry.raw,abort.signal);
       if(!current(session)||sequence!==session.sequence)return;
@@ -172,7 +206,7 @@ var CitationPreview = (() => {
       if(!current(session)||sequence!==session.sequence)return;
       body.replaceChildren();text(s.doc,'p',error.name==='AbortError'?'查询超时。关闭后重新打开引用可重试。':'引用查询失败：'+error.message,body);
       if(error.name!=='AbortError')report(error);
-    } finally {s.win.clearTimeout(timer);if(sequence===session.sequence && session.abort===abort)session.abort=null;}
+    } finally {positionPopup(session);s.win.clearTimeout(timer);if(sequence===session.sequence && session.abort===abort)session.abort=null;}
   }
   async function enhance(session) {
     const {state:s,popup,view}=session;
@@ -205,6 +239,7 @@ var CitationPreview = (() => {
         if(popup.type!=='internal-link'||session.namedCitation){metadataBlock(session,[]);text(s.doc,'p','引用解析失败：'+error.message,session.body);}
       }
     } finally {
+      positionPopup(session);
       s.win.clearTimeout(timer);if(session.abort===abort)session.abort=null;
     }
   }
