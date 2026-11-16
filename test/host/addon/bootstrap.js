@@ -2,6 +2,7 @@ var status = {stage: 'starting', metadataSource: 'deterministic test fixture'};
 var screenshot;
 var reader;
 var originalRequest;
+var restorePopupCallback;
 function assert(condition, message) { if (!condition) throw new Error(message); }
 async function waitFor(check, message, timeout = 15000) {
   const deadline = Date.now() + timeout;
@@ -57,7 +58,11 @@ async function run() {
     const number = raw.match(/study (2|44)\b/)?.[1];
     assert(number, 'Metadata request did not contain a fixture reference: ' + raw);
     status.metadataRequests = (status.metadataRequests || 0) + 1;
+    const trace={number,time:Date.now(),popupType:reader?._internalReader._state.primaryViewOverlayPopup?.type};
+    (status.requestTrace ||= []).push(trace);
+    options.cancellerReceiver?.(()=>{trace.cancelledAt=Date.now();});
     await Zotero.Promise.delay(700);
+    trace.completedAt=Date.now();
     const host=reader?._iframeWindow.document.querySelector('.view-popup');
     if(host && status.mode!=='multiple'){
       // Explicit asynchronous layout perturbation, separate from metadata fixtures.
@@ -112,16 +117,26 @@ async function run() {
       transform:host.style.transform,position:doc.defaultView.getComputedStyle(host).position,left:doc.defaultView.getComputedStyle(host).left,metadata:!!host.querySelector('.cp-native-metadata'),text:host.querySelector('.cp-native-metadata')?.textContent});
   };
   (async()=>{while(sampling){await new Promise(resolve=>doc.defaultView.requestAnimationFrame(()=>doc.defaultView.setTimeout(resolve,0)));if(sampling)sample();}})();
+  if(status.mode==='multiple'){
+    // The grouped fixture must be established before the first callback reaches
+    // Zotero/production observers; replacing an already-open hover races its request.
+    const original=view._onSetOverlayPopup;
+    const references=[44,2].map(number=>({chars:[...`[${number}] Jane Researcher. Visual citation testing study ${number}. 2024.`].map(c=>({c}))}));
+    const callback=value=>{
+      if(value?.type==='internal-link'){
+        status.groupedInjection={time:Date.now(),inputType:value.type,requestsBefore:status.metadataRequests||0};
+        return original(Cu.cloneInto({type:'citation',rect:Array.from(value.rect),references},view._iframeWindow));
+      }
+      return original(value);
+    };
+    view._onSetOverlayPopup=callback;
+    restorePopupCallback=()=>{if(view._onSetOverlayPopup===callback)view._onSetOverlayPopup=original;};
+  }
   status.stage = 'hovering';
   status.sourceRect = Array.from(rect);
   move((rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2);
   await waitFor(() => popup(), 'Trusted hover did not open the native popup');
   status.nativePopupType = popup().type;
-  if(status.mode==='multiple'){
-    // Explicit grouped-reference fixture through Zotero's native popup callback.
-    const references=[44,2].map(number=>({chars:[...`[${number}] Jane Researcher. Visual citation testing study ${number}. 2024.`].map(c=>({c}))}));
-    view._onSetOverlayPopup(Cu.cloneInto({type:'citation',rect:Array.from(popup().rect),references},view._iframeWindow));
-  }
   await waitFor(() => doc.querySelector('.cp-native-metadata'), 'No enhanced popup');
   phase='loading';sample();
   const terminal = () => {
@@ -145,6 +160,10 @@ async function run() {
   }
   const expectedRequests=status.mode==='parser-failure'?0:status.mode==='multiple'?2:1;
   status.expectedMetadataRequests=expectedRequests;
+  if(status.mode==='multiple'){
+    assert(status.groupedInjection?.requestsBefore===0,'Metadata request started before grouped fixture initialization');
+    assert(status.requestTrace.length===2 && status.requestTrace.every(x=>x.popupType==='citation'&&!x.cancelledAt),'Grouped fixture leaked a native preflight request or cancellation');
+  }
   assert((status.metadataRequests||0)===expectedRequests,'Unexpected fixture metadata request count');
   status.card=block.getBoundingClientRect().toJSON();
   status.viewport={width:doc.defaultView.innerWidth,height:doc.defaultView.innerHeight};
@@ -195,12 +214,14 @@ async function run() {
   await Zotero.Promise.delay(1000);
   assert(!popup() && !doc.querySelector('.cp-native-metadata'), 'Popup reappeared after pointer exit');
   status.closedAfterPointerExit = true;
+  restorePopupCallback?.();
   controller.stop();
   assert(!Zotero.Reader._registeredListeners.some(x => x.pluginID === 'citation-preview@local'), 'Addon listeners survived stop');
   status.cleanupPassed = true;
   status.stage = 'passed';
 }
 function shutdown() {
+  restorePopupCallback?.();
   if (originalRequest) Zotero.HTTP.request = originalRequest;
   delete Zotero.Server.Endpoints['/citation-preview-host/status'];
   delete Zotero.Server.Endpoints['/citation-preview-host/screenshot'];
