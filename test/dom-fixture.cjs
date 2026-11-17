@@ -1,7 +1,8 @@
 const fs = require("node:fs");
 const vm = require("node:vm");
 const { performance } = require("node:perf_hooks");
-function environment({ request } = {}) {
+const { DOMParser: XMLParser } = require("linkedom");
+function environment({ request, DOMParser } = {}) {
   const observers = new Set();
   let queued = false;
   function changed() {
@@ -134,11 +135,15 @@ function environment({ request } = {}) {
         observers.delete(this);
       }
     },
-    DOMParser: class {
-      parseFromString(value) {
-        return { body: { textContent: value.replace(/<[^>]*>/g, "") } };
-      }
-    },
+    DOMParser:
+      DOMParser ||
+      class {
+        parseFromString(value, type) {
+          if (type === "application/xml")
+            return new XMLParser().parseFromString(value, type);
+          return { body: { textContent: value.replace(/<[^>]*>/g, "") } };
+        }
+      },
   });
   const region = doc.createElement("div");
   region.className = "primary-view";

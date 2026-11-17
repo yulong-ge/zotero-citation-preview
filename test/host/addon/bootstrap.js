@@ -6,6 +6,7 @@ var screenshot;
 var reader;
 var originalRequest;
 var restorePopupCallback;
+var arxivFixture;
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -28,12 +29,15 @@ function capture() {
   screenshot = canvas.toDataURL("image/png").split(",")[1];
   status.hasScreenshot = true;
 }
-async function startup() {
+async function startup(data) {
   await Zotero.initializationPromise;
   status.runID = Services.env.get("HOST_CASE_RUN_ID");
   status.destination = Services.env.get("HOST_CASE_DEST");
   status.mode = Services.env.get("HOST_CASE_MODE") || "success";
   status.geometry = [];
+  arxivFixture = Zotero.File.getContentsFromURL(
+    data.resourceURI.resolve("issue-1-arxiv.xml"),
+  );
   Zotero.Server.Endpoints["/citation-preview-host/status"] = class {
     constructor() {
       this.supportedMethods = ["GET"];
@@ -71,6 +75,18 @@ async function run() {
   const addon = await AddonManager.getAddonByID("citation-preview@local");
   assert(addon?.isActive, "Production addon is not active");
   status.installation = { version: addon.version, active: addon.isActive };
+  const issueCase = status.mode.startsWith("issue-1");
+  const expectedTitle = issueCase
+    ? "Deep Unsupervised Learning using Nonequilibrium Thermodynamics"
+    : "Visual citation testing study " + status.destination.match(/\d+$/)[0];
+  const successCase = [
+    "success",
+    "multiple",
+    "issue-1",
+    "issue-1-live",
+  ].includes(status.mode);
+  if (status.mode === "issue-1-live")
+    status.metadataSource = "live Crossref and arXiv";
   // Only metadata is deterministic; PDF processing, hit testing and popup UI use the installed Zotero.
   originalRequest = Zotero.HTTP.request;
   Zotero.HTTP.request = async function (method, url, options) {
@@ -80,6 +96,38 @@ async function run() {
       )
     )
       return originalRequest.call(this, method, url, options);
+    if (issueCase) {
+      (status.metadataURLs ||= []).push(url);
+      status.metadataRequests = (status.metadataRequests || 0) + 1;
+      if (url.startsWith("https://api.crossref.org/works?")) {
+        status.rawReference = decodeURIComponent(
+          url.split("query.bibliographic=")[1].split("&")[0],
+        );
+        assert(
+          /Sohl-Dickstein/.test(status.rawReference) &&
+            /thermodynamics/.test(status.rawReference) &&
+            /2015/.test(status.rawReference),
+          "Wrong reference extracted from Kalman-Edit PDF",
+        );
+        if (status.mode === "issue-1-live")
+          return originalRequest.call(this, method, url, options);
+        return { responseText: JSON.stringify({ message: { items: [] } }) };
+      }
+      assert(
+        url.startsWith("https://export.arxiv.org/api/query?search_query="),
+        "Expected arXiv bibliographic search: " + url,
+      );
+      if (status.mode === "issue-1-live")
+        return originalRequest.call(this, method, url, options);
+      return { responseText: arxivFixture };
+    }
+    if (
+      status.mode === "metadata-failure" &&
+      url.startsWith("https://export.arxiv.org/")
+    ) {
+      status.metadataRequests++;
+      return { responseText: '<feed xmlns="http://www.w3.org/2005/Atom"/>' };
+    }
     assert(
       url.startsWith("https://api.crossref.org/works?"),
       "Unexpected metadata request: " + url,
@@ -256,7 +304,7 @@ async function run() {
   sample();
   const terminal = () => {
     const block = doc.querySelector(".cp-native-metadata");
-    return ["success", "multiple"].includes(status.mode)
+    return successCase
       ? block?.querySelector("h2")
       : /引用(?:查询|解析)失败/.test(block?.textContent || "");
   };
@@ -271,12 +319,16 @@ async function run() {
   const block = doc.querySelector(".cp-native-metadata");
   status.title = block.querySelector("h2")?.textContent;
   assert(
-    ["success", "multiple"].includes(status.mode)
-      ? status.title ===
-          "Visual citation testing study " + destination.match(/\d+$/)[0]
-      : !status.title,
+    successCase ? status.title === expectedTitle : !status.title,
     "Wrong terminal content",
   );
+  if (issueCase) {
+    assert(
+      block.textContent.includes("arXiv · 1503.03585"),
+      "Wrong arXiv identity in Kalman-Edit citation",
+    );
+    status.verifiedIdentifier = "1503.03585";
+  }
   if (status.mode === "multiple") {
     phase = "switch-loading";
     const choice = doc.querySelectorAll(".cp-reference-choice")[1];
@@ -297,7 +349,13 @@ async function run() {
     ).textContent;
   }
   const expectedRequests =
-    status.mode === "parser-failure" ? 0 : status.mode === "multiple" ? 2 : 1;
+    status.mode === "parser-failure"
+      ? 0
+      : ["multiple", "metadata-failure", "issue-1", "issue-1-live"].includes(
+            status.mode,
+          )
+        ? 2
+        : 1;
   status.expectedMetadataRequests = expectedRequests;
   if (status.mode === "multiple") {
     assert(

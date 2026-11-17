@@ -6,6 +6,8 @@
       .replace(/\p{M}/gu, "")
       .toLowerCase()
       .match(/[\p{L}\p{N}]+/gu) || [];
+  const joinWrappedWords = (text) =>
+    text.replace(/(\p{L})[-\u00ad]\s+(?=\p{Ll})/gu, "$1");
   function referenceText(ref) {
     return (ref.chars || [])
       .filter((c) => !c.ignorable)
@@ -49,7 +51,8 @@
   function validate(raw, work) {
     const title = work.title?.[0];
     const tokens = words(title).filter((x) => x.length > 2);
-    const input = new Set(words(raw));
+    // Keep both forms: a line-end hyphen may be discretionary or part of a name.
+    const input = new Set([...words(raw), ...words(joinWrappedWords(raw))]);
     const titleMatch =
       tokens.length >= 3 &&
       tokens.filter((x) => input.has(x)).length / tokens.length >= 0.9;
@@ -152,6 +155,7 @@
   }
   const api = {
     words,
+    joinWrappedWords,
     referenceText,
     validate,
     validateCarrier,

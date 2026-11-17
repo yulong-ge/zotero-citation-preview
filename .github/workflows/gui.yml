@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      live_metadata:
+        description: Also verify Issue 1 with live Crossref and arXiv
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,6 +37,10 @@ jobs:
           cp "$archive" .local/cloud-gui/citation-preview.xpi
           uv run --locked python test/host/make_fixture.py .local/cloud-gui/fixture.pdf
           uv run --locked python test/host/make_fixture.py .local/cloud-gui/parser-failure.pdf parser-failure
+      - name: Download pinned public Kalman-Edit PDF
+        run: |
+          curl --fail --location --retry 3 --max-time 120 https://papers.nips.cc/paper_files/paper/2025/file/d01db5cd2555ba11f75da0454d57b903-Paper-Conference.pdf -o .local/cloud-gui/kalman-edit.pdf
+          echo '762f54a8c26368c686240805ef658d5e953d8dc8b32aeea95beb396466753484  .local/cloud-gui/kalman-edit.pdf' | sha256sum --check -
       - name: Test native hover, metadata, dismissal and cleanup
         run: |
           for reference in 2 44; do
@@ -53,6 +62,25 @@ jobs:
               --destination cite.fixture44 \
               --output ".local/cloud-gui/${case}"
           done
+      - name: Test Issue 1 on the public paper
+        run: |
+          xvfb-run -a uv run --locked python test/host/run.py \
+            --case issue-1 \
+            --zotero "$RUNNER_TEMP/zotero/Zotero_linux-x86_64/zotero" \
+            --xpi .local/cloud-gui/citation-preview.xpi \
+            --pdf .local/cloud-gui/kalman-edit.pdf \
+            --destination cite.sohl2015deep \
+            --output .local/cloud-gui/issue-1
+      - name: Verify live metadata for Issue 1
+        if: github.event_name == 'workflow_dispatch' && inputs.live_metadata
+        run: |
+          xvfb-run -a uv run --locked python test/host/run.py \
+            --case issue-1-live \
+            --zotero "$RUNNER_TEMP/zotero/Zotero_linux-x86_64/zotero" \
+            --xpi .local/cloud-gui/citation-preview.xpi \
+            --pdf .local/cloud-gui/kalman-edit.pdf \
+            --destination cite.sohl2015deep \
+            --output .local/cloud-gui/issue-1-live
       - name: Upload GUI evidence
         if: always()
         uses: actions/upload-artifact@v6

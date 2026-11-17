@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Metadata identity from https://arxiv.org/abs/1503.03585; summary is explicitly synthetic. -->
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/1503.03585v8</id>
+    <title>Deep Unsupervised Learning using Nonequilibrium Thermodynamics</title>
+    <published>2015-03-12T04:51:37Z</published>
+    <author><name>Jascha Sohl-Dickstein</name></author>
+    <author><name>Eric A. Weiss</name></author>
+    <author><name>Niru Maheswaranathan</name></author>
+    <author><name>Surya Ganguli</name></author>
+    <summary>Explicit metadata fixture for Issue 1; this is not the paper's abstract.</summary>
+  </entry>
+</feed>

@@ -6,7 +6,9 @@ Grouped citations show every reference number as a directly selectable button. S
 
 ## Resolution and privacy
 
-Only a citation opened by the reader is sent to metadata services. arXiv identifiers use the arXiv API. DOI identifiers use Crossref. References without identifiers use Crossref bibliographic search, requiring at least 90% title-token coverage, a matching author surname and a publication year within one year. Missing years, short titles and ambiguous matches are rejected. Publisher and publication-type evidence must also agree. Crossref's abstract is used when available; otherwise the DOI is queried at OpenAlex. Abstracts are never generated.
+Only a citation opened by the reader is sent to metadata services. arXiv identifiers use the arXiv API. DOI identifiers use Crossref. References without identifiers use Crossref bibliographic search. If that search succeeds but contains no verified match, the plugin searches arXiv using up to 64 unique bibliography terms and examines up to five results. Transport errors and ambiguous Crossref matches stop the lookup; they do not trigger another service.
+
+Bibliographic matches require at least 90% title-token coverage, a matching author surname and a publication year within one year. Line-end hyphenation is checked in both separated and joined forms while the original entry remains unchanged. Missing years, short titles and ambiguous matches are rejected. Publisher and publication-type evidence must also agree. arXiv search results must pass the same checks and have a valid arXiv identifier. Crossref's abstract is used when available; otherwise the DOI is queried at OpenAlex. arXiv matches use the returned summary. Abstracts are never generated.
 
 The original bibliography entry and source link remain available. Missing abstracts and lookup failures are shown explicitly. Some correctly identified references have no matching record in these services; the plugin reports that instead of showing an unrelated paper.
 

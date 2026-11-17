@@ -19,7 +19,14 @@ parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--destination", default="cite.fixture2")
 parser.add_argument(
     "--case",
-    choices=["success", "metadata-failure", "parser-failure", "multiple"],
+    choices=[
+        "success",
+        "metadata-failure",
+        "parser-failure",
+        "multiple",
+        "issue-1",
+        "issue-1-live",
+    ],
     default="success",
 )
 args = parser.parse_args()
