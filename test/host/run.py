@@ -211,3 +211,18 @@ with (root / "process.log").open("wb") as log:
             process.wait(timeout=5)
         if group_exists():
             os.killpg(process.pid, signal.SIGKILL)
+        # Child socket shutdown can finish after the launcher exits.
+        cleanup_deadline = time.monotonic() + 5
+        for port in (23129, 23130):
+            while True:
+                try:
+                    with socket.socket() as reservation:
+                        reservation.setsockopt(
+                            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1
+                        )
+                        reservation.bind(("127.0.0.1", port))
+                    break
+                except OSError:
+                    if time.monotonic() >= cleanup_deadline:
+                        raise
+                    time.sleep(0.05)

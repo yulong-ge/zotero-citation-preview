@@ -52,6 +52,14 @@ async function startup(data) {
   };
   run(data.rootURI).catch((error) => {
     status.error = { message: String(error), stack: error.stack };
+    const view = reader?._internalReader?._primaryView;
+    status.nativeDiagnostics = {
+      scrolling: view?._scrolling,
+      selectedType: view?._selectedOverlay?.type,
+      hovering: !!view?._hover,
+      openingPending: !!view?._overlayPopupDelayer?._openingTimeout,
+      pointerOutside: view?._overlayPopupDelayer?._outside,
+    };
     try {
       capture();
     } catch (captureError) {
@@ -224,6 +232,15 @@ async function run(rootURI) {
     "pointermove",
     (event) => {
       status.trustedPointer = event.isTrusted;
+      const position = view.pointerEventToPosition(event);
+      status.pointerProbe = {
+        x: event.clientX,
+        y: event.clientY,
+        target: event.target.tagName,
+        scrolling: view._scrolling,
+        pageIndex: position?.pageIndex,
+        overlayType: position && view._getSelectableOverlay(position)?.type,
+      };
     },
     { once: true },
   );
