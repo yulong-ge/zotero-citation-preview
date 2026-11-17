@@ -12,10 +12,10 @@ Development and acceptance run in an isolated Zotero profile so the owner's runn
 4. Commit the reviewed source and require CI green for that exact commit.
 5. Download the CI XPI artifact and verify its version, HTTPS update URL and exact seven entries: `manifest.json`, `bootstrap.js`, `core.js`, `preview.js`, and the three PNGs declared by the manifest.
 6. Generate separate `updates.json` and `SHA256SUMS` assets from that final XPI. Never embed them in the XPI.
-7. Publish the tagged release, download the assets over HTTPS and verify their hashes. Install the published XPI in an isolated profile and check its version and activation state.
+7. Publish the tagged release, download the assets over HTTPS and verify their hashes. Dispatch `Zotero GUI` at the tag with `release_tag` and the verified `release_sha256` to install the published XPI in an isolated profile. The workflow checks its hash and manifest against the checkout, then runs the native cases. Inspect the reported version and activation state. Use `live_metadata=true` for the public-paper live lookup.
 
 Stable update endpoint: `https://github.com/yulong-ge/zotero-citation-preview/releases/latest/download/updates.json`.
 
-Published installers, update manifests and checksums belong to GitHub Releases. Downloaded copies belong in `~/Downloads/zotero-citation-preview/`, not in the source tree. Local builds use ignored `dist/`. Publishing is manual and requires task authorization; CI does not publish.
+Published installers, update manifests and checksums belong to GitHub Releases. Downloaded copies belong in `~/Downloads/zotero-citation-preview/`, not in the source tree. Local builds use ignored `dist/`. The owner has authorized the maintainer agent to publish completed batches after Codex review and this gate pass. Choose a release boundary after the assigned issues are complete. CI does not publish.
 
 Previous verification results are in [validation](validation.md).

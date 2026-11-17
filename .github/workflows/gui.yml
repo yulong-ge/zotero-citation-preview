@@ -9,6 +9,14 @@ on:
         description: Also verify Issue 1 with live Crossref and arXiv
         type: boolean
         default: false
+      release_tag:
+        description: Optional published tag to install instead of the local build
+        type: string
+        default: ""
+      release_sha256:
+        description: Required XPI SHA256 when verifying a published tag
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -37,6 +45,32 @@ jobs:
           cp "$archive" .local/cloud-gui/citation-preview.xpi
           uv run --locked python test/host/make_fixture.py .local/cloud-gui/fixture.pdf
           uv run --locked python test/host/make_fixture.py .local/cloud-gui/parser-failure.pdf parser-failure
+      - name: Download published installer for verification
+        if: github.event_name == 'workflow_dispatch' && (inputs.release_tag != '' || inputs.release_sha256 != '')
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_SHA256: ${{ inputs.release_sha256 }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'release_tag must be vMAJOR.MINOR.PATCH' >&2
+            exit 1
+          fi
+          if [[ ! "$RELEASE_SHA256" =~ ^[a-f0-9]{64}$ ]]; then
+            echo 'release_sha256 must be the verified lowercase XPI SHA256' >&2
+            exit 1
+          fi
+          curl --fail --location --retry 3 --max-time 120 \
+            "https://github.com/yulong-ge/zotero-citation-preview/releases/download/$RELEASE_TAG/citation-preview-${RELEASE_TAG#v}.xpi" \
+            -o .local/cloud-gui/citation-preview.xpi
+          echo "$RELEASE_SHA256  .local/cloud-gui/citation-preview.xpi" | sha256sum --check -
+          uv run --locked python - <<'PY'
+          import json
+          import zipfile
+          from pathlib import Path
+          with zipfile.ZipFile('.local/cloud-gui/citation-preview.xpi') as archive:
+              if json.loads(archive.read('manifest.json')) != json.loads(Path('manifest.json').read_text()):
+                  raise ValueError('Published installer manifest differs from the checked-out source')
+          PY
       - name: Download pinned public Kalman-Edit PDF
         run: |
           curl --fail --location --retry 3 --max-time 120 https://papers.nips.cc/paper_files/paper/2025/file/d01db5cd2555ba11f75da0454d57b903-Paper-Conference.pdf -o .local/cloud-gui/kalman-edit.pdf

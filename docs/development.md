@@ -35,3 +35,9 @@ A formatting merge conflict leaves the working-tree text intact and may leave th
 - `.local/maintenance/` holds this machine's move inventory and temporary maintenance verification. `.local/cloud-gui/` is created by current native tests.
 
 Do not commit personal PDFs, profiles, credentials or generated installers. Historical references use their original conditions; current test commands must use the maintained harness. No automatic release job is installed.
+
+## Pull requests and branch protection
+
+`main` requires pull requests, an up-to-date branch, successful `test-and-build` and `native-reader` checks from GitHub Actions, and resolved review conversations. These rules apply to administrators. Force pushes and deletion of `main` are disabled.
+
+Request `@codex review` after submitting a PR and after changing its reviewed commit. Check the Codex review summary for the exact head and address every unresolved finding before merging. A running review, a quota error or no response does not permit a merge. Codex's comment/reaction is not a formal GitHub approval, so the branch rule does not require a separate human approval; the maintainer agent enforces the Codex review condition. The owner has authorized routine merges and batch releases after these gates pass. See [GitHub's protection rules](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) and [Codex review](https://learn.chatgpt.com/docs/third-party/github).
