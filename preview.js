@@ -15,6 +15,8 @@ var CitationPreview = (() => {
   const metrics = {
     requests: 0,
     cacheHits: 0,
+    prefetches: 0,
+    prefetchHits: 0,
     cancellations: 0,
     showCalls: 0,
     maxShowMs: 0,
@@ -341,13 +343,29 @@ var CitationPreview = (() => {
       s.reader._internalReader?._state?.[slot + "ViewOverlayPopup"] === popup
     );
   }
-  function cancelRequest(session) {
+  function cancelLookup(session, job) {
+    if (job.status !== "pending" || job.cancelled) return;
+    job.cancelled = true;
+    session.state.win.clearTimeout(job.timer);
+    job.abort.abort();
+    if (session.lookups.get(job.entry.raw) === job)
+      session.lookups.delete(job.entry.raw);
+    metrics.cancellations++;
+  }
+  function cancelRequest(session, preserveRaw) {
     session.state.win.clearTimeout(session.timer);
     if (session.abort) {
       session.abort.abort();
       session.abort = null;
       metrics.cancellations++;
     }
+    if (
+      session.foreground &&
+      session.foreground !== session.background &&
+      session.foreground.entry.raw !== preserveRaw
+    )
+      cancelLookup(session, session.foreground);
+    session.foreground = null;
     session.sequence++;
   }
   function endSession(s, slot) {
@@ -355,6 +373,8 @@ var CitationPreview = (() => {
     if (!session) return;
     s.sessions.delete(slot);
     cancelRequest(session);
+    for (const job of session.lookups?.values() || [])
+      cancelLookup(session, job);
     session.resizeObserver?.disconnect();
     session.block?.remove();
   }
@@ -420,6 +440,8 @@ var CitationPreview = (() => {
     const started = session.state.win.performance.now();
     try {
       const { doc } = session.state;
+      session.entries = entries;
+      session.lookups = new Map();
       const block = (session.block = text(doc, "section", ""));
       block.className = "cp-native-metadata";
       if (session.namedCitation)
@@ -477,21 +499,89 @@ var CitationPreview = (() => {
       metrics.maxShowMs = Math.max(metrics.maxShowMs, elapsed);
     }
   }
+  function choiceStatus(session, job, status, message) {
+    if (!current(session) || job.cancelled) return;
+    for (const { button, entry } of session.choices || []) {
+      if (entry.raw !== job.entry.raw) continue;
+      button.setAttribute("data-cp-status", status);
+      button.setAttribute("aria-label", button.textContent + " · " + message);
+      button.title = entry.raw + "\n" + message;
+    }
+  }
+  function lookup(session, entry, prepared = false) {
+    const existing = session.lookups.get(entry.raw);
+    if (existing) {
+      if (existing.prefetched) metrics.prefetchHits++;
+      return existing;
+    }
+    const s = session.state;
+    const abort = prepared ? session.abort : new s.win.AbortController();
+    const timer = prepared
+      ? session.timer
+      : s.win.setTimeout(() => abort.abort(), 12000);
+    if (prepared) {
+      session.abort = null;
+      session.timer = null;
+    }
+    const job = { entry, abort, timer, status: "pending" };
+    session.lookups.set(entry.raw, job);
+    choiceStatus(session, job, "loading", "正在获取摘要");
+    job.promise = resolve(s, entry.raw, abort.signal)
+      .then(
+        (result) => {
+          job.status = "fulfilled";
+          choiceStatus(session, job, "ready", "摘要已缓存");
+          return result;
+        },
+        (error) => {
+          job.status = "rejected";
+          throw error;
+        },
+      )
+      .finally(() => s.win.clearTimeout(timer));
+    return job;
+  }
+  function queryError(error) {
+    return error.name === "AbortError"
+      ? "查询超时。关闭后重新打开引用可重试。"
+      : "引用查询失败：" + error.message;
+  }
+  function lookupFailed(session, job, error) {
+    if (!current(session) || job.cancelled) return;
+    choiceStatus(session, job, "error", queryError(error));
+    if (!job.reported && error.name !== "AbortError") report(error);
+    job.reported = true;
+  }
+  async function prefetch(session) {
+    if (!current(session) || session.background) return;
+    const entry = session.entries.find(
+      (entry) =>
+        entry !== session.selectedEntry && !session.lookups.has(entry.raw),
+    );
+    if (!entry) return;
+    const job = lookup(session, entry);
+    job.prefetched = true;
+    session.background = job;
+    metrics.prefetches++;
+    try {
+      await job.promise;
+    } catch (error) {
+      // Retain the rejected lookup for selection; expose background failures on its choice.
+      lookupFailed(session, job, error);
+    } finally {
+      session.background = null;
+      void prefetch(session);
+    }
+  }
   async function loadMetadata(session, entry, prepared = false) {
     if (!current(session)) return;
-    if (!prepared) {
-      cancelRequest(session);
-      session.abort = new session.state.win.AbortController();
-      session.timer = session.state.win.setTimeout(
-        () => session.abort?.abort(),
-        12000,
-      );
-    }
+    if (!prepared) cancelRequest(session, entry.raw);
     const { state: s, body, original } = session;
-    const sequence = session.sequence,
-      abort = session.abort,
-      timer = session.timer;
+    const sequence = session.sequence;
     session.selectedEntry = entry;
+    const job = lookup(session, entry, prepared);
+    session.foreground = job;
+    void prefetch(session);
     for (const choice of session.choices || [])
       choice.button.setAttribute(
         "aria-pressed",
@@ -505,7 +595,7 @@ var CitationPreview = (() => {
     text(s.doc, "p", "正在核对引用及获取摘要…", body);
     positionPopup(session);
     try {
-      const result = await resolve(s, entry.raw, abort.signal);
+      const result = await job.promise;
       if (!current(session) || sequence !== session.sequence) return;
       body.replaceChildren();
       text(s.doc, "h2", result.title, body);
@@ -518,20 +608,12 @@ var CitationPreview = (() => {
     } catch (error) {
       if (!current(session) || sequence !== session.sequence) return;
       body.replaceChildren();
-      text(
-        s.doc,
-        "p",
-        error.name === "AbortError"
-          ? "查询超时。关闭后重新打开引用可重试。"
-          : "引用查询失败：" + error.message,
-        body,
-      );
-      if (error.name !== "AbortError") report(error);
+      text(s.doc, "p", queryError(error), body);
+      lookupFailed(session, job, error);
     } finally {
       positionPopup(session);
-      s.win.clearTimeout(timer);
-      if (sequence === session.sequence && session.abort === abort)
-        session.abort = null;
+      if (sequence === session.sequence && session.foreground === job)
+        session.foreground = null;
     }
   }
   async function enhance(session) {
@@ -665,6 +747,7 @@ var CitationPreview = (() => {
 .cp-reference-choices{display:flex;flex-wrap:wrap;gap:6px;flex:none;padding:10px 12px;border-bottom:1px solid var(--fill-quinary)}
 .cp-reference-choice{border:1px solid var(--fill-quaternary);border-radius:5px;padding:3px 7px;background:transparent;cursor:pointer}
 .cp-reference-choice[aria-pressed="true"]{background:var(--fill-tertiary);font-weight:700;box-shadow:inset 0 -2px currentColor}
+.cp-reference-choice[data-cp-status="error"]::after{content:" !"}
 .cp-reference-choice:focus-visible{outline:2px solid currentColor;outline-offset:1px}
 .cp-content{min-height:0;flex:1;overflow:auto;padding:12px}
 .cp-content .cp-authors{max-height:none;overflow:visible}

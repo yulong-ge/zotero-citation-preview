@@ -72,7 +72,7 @@ test("changing reference cancels the old request; late completion cannot overwri
   assert.equal(e.doc.querySelector(".view-popup"), null);
   e.addon.stop();
 });
-test("seven citations use numbered choices outside one content scroller and fetch only the selected entry", async () => {
+test("seven citations keep numbered choices outside one scroller while prefetching", async () => {
   const pending = [],
     cancelled = [];
   const e = environment({
@@ -98,21 +98,21 @@ test("seven citations use numbered choices outside one content scroller and fetc
     "all seven citation numbers must be directly selectable",
   );
   assert.equal(host.querySelector("select"), null);
-  assert.equal(pending.length, 1);
+  assert.equal(pending.length, 2);
   const block = host.querySelector(".cp-native-metadata"),
     scroller = host.querySelector(".cp-content");
   assert.equal(block.getAttribute("data-cp-multiple"), "true");
   assert.equal(scroller.contains(buttons[0]), false);
   buttons[6].onclick();
   await tick();
-  assert.equal(pending.length, 2);
+  assert.equal(pending.length, 3);
   assert.equal(cancelled.length, 1);
   assert.equal(buttons[6].getAttribute("aria-pressed"), "true");
   assert.equal(buttons[0].getAttribute("aria-pressed"), "false");
   assert.match(host.querySelector(".cp-original").textContent, /^80\./);
   e.close(host);
   await tick();
-  assert.equal(cancelled.length, 2);
+  assert.equal(cancelled.length, 3);
   for (const resolve of pending)
     resolve({ responseText: JSON.stringify({ message: { items: [] } }) });
   await tick();
