@@ -10,7 +10,7 @@ Development and acceptance run in an isolated Zotero profile so the owner's runn
 2. Run the complete repository tests under NVM Node 24, syntax checks and `git diff --check`.
 3. Exercise native citation opening, metadata, dismissal and cleanup in an isolated Zotero host.
 4. Commit the reviewed source and require CI green for that exact commit.
-5. Download the CI XPI artifact and verify its version, HTTPS update URL and exact four entries: `manifest.json`, `bootstrap.js`, `core.js`, `preview.js`.
+5. Download the CI XPI artifact and verify its version, HTTPS update URL and exact seven entries: `manifest.json`, `bootstrap.js`, `core.js`, `preview.js`, and the three PNGs declared by the manifest.
 6. Generate separate `updates.json` and `SHA256SUMS` assets from that final XPI. Never embed them in the XPI.
 7. Publish the tagged release, download the assets over HTTPS and verify their hashes. Install the published XPI in an isolated profile and check its version and activation state.
 
