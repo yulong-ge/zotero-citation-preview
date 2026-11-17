@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Citation Preview",
-  "version": "0.1.12",
+  "version": "0.2.0",
   "description": "Verified metadata and abstracts inside Zotero native citation popovers",
   "author": "yulong-ge",
   "applications": {
