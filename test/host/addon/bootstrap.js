@@ -143,7 +143,7 @@ async function run(rootURI) {
     const raw = decodeURIComponent(
       url.split("query.bibliographic=")[1].split("&")[0],
     );
-    const number = raw.match(/study (2|44)\b/)?.[1];
+    const number = raw.match(/study (2|18|44)\b/)?.[1];
     assert(
       number,
       "Metadata request did not contain a fixture reference: " + raw,
@@ -282,7 +282,7 @@ async function run(rootURI) {
     // The grouped fixture must be established before the first callback reaches
     // Zotero/production observers; replacing an already-open hover races its request.
     const original = view._onSetOverlayPopup;
-    const references = [44, 2].map((number) => ({
+    const references = [44, 2, 18].map((number) => ({
       chars: [
         ...`[${number}] Jane Researcher. Visual citation testing study ${number}. 2024.`,
       ].map((c) => ({ c })),
@@ -367,6 +367,23 @@ async function run(rootURI) {
     status.verifiedIdentifier = "1503.03585";
   }
   if (status.mode === "multiple") {
+    await waitFor(
+      () =>
+        [...doc.querySelectorAll(".cp-reference-choice")].every(
+          (button) => button.getAttribute("data-cp-status") === "ready",
+        ),
+      "Grouped references were not prefetched before selection",
+    );
+    assert(
+      status.metadataRequests === 3,
+      "Expected all three references to preload",
+    );
+    assert(
+      status.requestTrace[1].time < status.requestTrace[0].completedAt,
+      "Prefetch did not overlap the selected lookup",
+    );
+    status.prefetchCompletedBeforeSelection = true;
+    status.switchRequestedAt = Date.now();
     phase = "switch-loading";
     const choice = doc.querySelectorAll(".cp-reference-choice")[1];
     assert(choice, "Missing second reference choice");
@@ -378,6 +395,7 @@ async function run(rootURI) {
         "Visual citation testing study 2",
       "Switch did not resolve second paper",
     );
+    status.warmSwitchMs = Date.now() - status.switchRequestedAt;
     phase = "switch-complete";
     await Zotero.Promise.delay(150);
     sample();
@@ -388,11 +406,11 @@ async function run(rootURI) {
   const expectedRequests =
     status.mode === "parser-failure"
       ? 0
-      : ["multiple", "metadata-failure", "issue-1", "issue-1-live"].includes(
-            status.mode,
-          )
-        ? 2
-        : 1;
+      : status.mode === "multiple"
+        ? 3
+        : ["metadata-failure", "issue-1", "issue-1-live"].includes(status.mode)
+          ? 2
+          : 1;
   status.expectedMetadataRequests = expectedRequests;
   if (status.mode === "multiple") {
     assert(
@@ -400,7 +418,7 @@ async function run(rootURI) {
       "Metadata request started before grouped fixture initialization",
     );
     assert(
-      status.requestTrace.length === 2 &&
+      status.requestTrace.length === 3 &&
         status.requestTrace.every(
           (x) => x.popupType === "citation" && !x.cancelledAt,
         ),
