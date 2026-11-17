@@ -12,7 +12,7 @@ npm run setup:hooks
 npm run check
 ```
 
-`npm run check` checks formatting, JavaScript, Markdown, Python, shell, workflows, document links, Notes and frozen-history contracts. It runs maintenance tests, the existing Node product tests and the four-file XPI build. It does not run the native GUI test locally; follow the [host guide](../test/host/README.md) or inspect the `Zotero GUI` workflow. No tool checks prose duplication or replaces behavioral review.
+`npm run check` checks formatting, JavaScript, Markdown, Python, shell, workflows, document links, Notes and frozen-history contracts. It runs maintenance tests, the existing Node product tests and the XPI with bundled icons build. It does not run the native GUI test locally; follow the [host guide](../test/host/README.md) or inspect the `Zotero GUI` workflow. No tool checks prose duplication or replaces behavioral review.
 
 `npm run format` applies Prettier, Ruff, shfmt and Taplo (project TOML). ESLint targets JavaScript, including privileged Zotero globals; Ruff selects E4/E7/E9/F. Markdownlint and the adopted document checker validate structure and local anchors. Chinese prose spacing remains a review responsibility; this adoption does not add AutoCorrect rewriting of protocol strings or fixtures. No MPE preview resources are needed for this plugin.
 
@@ -27,6 +27,7 @@ A formatting merge conflict leaves the working-tree text intact and may leave th
 ## Files and artifacts
 
 - Root contains the four plugin source files and repository configuration.
+- `assets/` contains the generated icon source and its provenance; `icons/` contains the 32, 64 and 128 pixel PNGs shipped in the XPI.
 - `docs/` contains maintained documentation; `test/` contains fixtures and tests; `scripts/` contains build and maintenance commands.
 - `dist/` is ignored, disposable output from `npm run build`. Copy an installer to Downloads for installation or manual publication.
 - `~/Downloads/zotero-citation-preview/` holds downloaded release assets and retained historical installers. `local-builds/` and `release-assets/` preserve their origin; these are not source files.

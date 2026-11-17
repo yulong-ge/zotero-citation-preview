@@ -79,6 +79,23 @@ async function run(rootURI) {
   const addon = await AddonManager.getAddonByID("citation-preview@local");
   assert(addon?.isActive, "Production addon is not active");
   status.installation = { version: addon.version, active: addon.isActive };
+  assert(
+    addon.iconURL?.includes("/icons/"),
+    "Custom addon icon was not registered",
+  );
+  const icon = new (Zotero.getMainWindow().Image)();
+  await new Promise((resolve, reject) => {
+    icon.onload = resolve;
+    icon.onerror = () =>
+      reject(new Error("Custom addon icon could not be decoded"));
+    icon.src = addon.iconURL;
+  });
+  assert(
+    [32, 64, 128].includes(icon.naturalWidth),
+    "Unexpected addon icon dimensions",
+  );
+  assert(icon.naturalHeight === icon.naturalWidth, "Addon icon is not square");
+  status.installation.icon = { url: addon.iconURL, width: icon.naturalWidth };
   const issueCase = status.mode.startsWith("issue-1");
   assert(typeof rootURI === "string", "Test addon rootURI is required");
   const arxivFixture = await Zotero.File.getContentsFromURLAsync(
