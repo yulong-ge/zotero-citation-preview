@@ -1,12 +1,12 @@
-"""Build and verify the four-file Zotero addon; release assets stay separate."""
+"""Build and verify the Zotero addon and its icons; release assets stay separate."""
 
 import json
 import re
+import struct
 from pathlib import Path
 import zipfile
 
 root = Path(__file__).resolve().parents[1]
-names = ("manifest.json", "bootstrap.js", "core.js", "preview.js")
 manifest = json.loads((root / "manifest.json").read_text())
 if manifest["manifest_version"] != 2:
     raise ValueError("Expected manifest_version 2")
@@ -19,6 +19,18 @@ if (
     != "https://github.com/yulong-ge/zotero-citation-preview/releases/latest/download/updates.json"
 ):
     raise ValueError("Unexpected addon update URL")
+icons = {str(size): f"icons/icon-{size}.png" for size in (32, 64, 128)}
+if manifest.get("icons") != icons:
+    raise ValueError("Expected bundled 32, 64 and 128 pixel addon icons")
+for size, name in icons.items():
+    image = (root / name).read_bytes()
+    if (
+        len(image) < 24
+        or image[:16] != b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+        or struct.unpack(">II", image[16:24]) != (int(size), int(size))
+    ):
+        raise ValueError(f"Invalid {size} pixel PNG icon: {name}")
+names = ("manifest.json", "bootstrap.js", "core.js", "preview.js", *icons.values())
 out = root / "dist" / f"citation-preview-{manifest['version']}.xpi"
 out.parent.mkdir(exist_ok=True)
 temporary = out.with_suffix(".tmp")
