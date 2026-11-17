@@ -1,5 +1,6 @@
 import argparse
 import base64
+import errno
 import json
 import os
 from pathlib import Path
@@ -222,7 +223,10 @@ with (root / "process.log").open("wb") as log:
                         )
                         reservation.bind(("127.0.0.1", port))
                     break
-                except OSError:
-                    if time.monotonic() >= cleanup_deadline:
+                except OSError as error:
+                    if (
+                        error.errno != errno.EADDRINUSE
+                        or time.monotonic() >= cleanup_deadline
+                    ):
                         raise
                     time.sleep(0.05)

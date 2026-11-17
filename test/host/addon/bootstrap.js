@@ -216,7 +216,7 @@ async function run(rootURI) {
     "Source page did not become ready",
   );
   await Zotero.Promise.delay(800);
-  const rect = view.getClientRect(
+  let rect = view.getClientRect(
     Cu.cloneInto(position.rects[0], view._iframeWindow),
     0,
   );
@@ -231,6 +231,7 @@ async function run(rootURI) {
   view._iframeWindow.addEventListener(
     "pointermove",
     (event) => {
+      status.pointerEvents = (status.pointerEvents || 0) + 1;
       status.trustedPointer = event.isTrusted;
       const position = view.pointerEventToPosition(event);
       status.pointerProbe = {
@@ -309,8 +310,27 @@ async function run(rootURI) {
     };
   }
   status.stage = "hovering";
-  status.sourceRect = Array.from(rect);
-  move((rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2);
+  // Native Zotero ignores pointer moves during scroll, including late PDF layout scrolls.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await waitFor(() => !view._scrolling, "Source page did not stop scrolling");
+    rect = view.getClientRect(
+      Cu.cloneInto(position.rects[0], view._iframeWindow),
+      0,
+    );
+    status.sourceRect = Array.from(rect);
+    status.hoverAttempts = attempt + 1;
+    const before = status.pointerEvents || 0;
+    move(
+      (rect[0] + rect[2]) / 2 + (attempt % 2 ? 1 : -1),
+      (rect[1] + rect[3]) / 2,
+    );
+    await waitFor(
+      () => status.pointerEvents > before,
+      "Trusted pointer event was not delivered",
+    );
+    if (!status.pointerProbe.scrolling) break;
+    assert(attempt < 4, "Zotero kept discarding hover events during scroll");
+  }
   await waitFor(() => popup(), "Trusted hover did not open the native popup");
   status.nativePopupType = popup().type;
   await waitFor(
