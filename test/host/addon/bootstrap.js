@@ -243,7 +243,7 @@ async function run(rootURI) {
         overlayType: position && view._getSelectableOverlay(position)?.type,
       };
     },
-    { once: true },
+    false,
   );
   const doc = reader._iframeWindow.document;
   const popup = () => reader._internalReader._state.primaryViewOverlayPopup;
