@@ -217,6 +217,10 @@ async function run(rootURI) {
   const item = await Zotero.Attachments.importFromFile({ file: pdf });
   reader = await Zotero.Reader.open(item.id);
   await reader._initPromise;
+  await waitFor(
+    () => reader._internalReader?._primaryView,
+    "Reader did not create its primary view",
+  );
   const view = reader._internalReader._primaryView;
   await view.initializedPromise;
   const Cu = Components.utils;
