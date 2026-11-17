@@ -6,7 +6,6 @@ var screenshot;
 var reader;
 var originalRequest;
 var restorePopupCallback;
-var arxivFixture;
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -35,9 +34,6 @@ async function startup(data) {
   status.destination = Services.env.get("HOST_CASE_DEST");
   status.mode = Services.env.get("HOST_CASE_MODE") || "success";
   status.geometry = [];
-  arxivFixture = Zotero.File.getContentsFromURL(
-    data.resourceURI.resolve("issue-1-arxiv.xml"),
-  );
   Zotero.Server.Endpoints["/citation-preview-host/status"] = class {
     constructor() {
       this.supportedMethods = ["GET"];
@@ -54,7 +50,7 @@ async function startup(data) {
       return [200, "text/plain", screenshot];
     }
   };
-  run().catch((error) => {
+  run(data.rootURI).catch((error) => {
     status.error = { message: String(error), stack: error.stack };
     try {
       capture();
@@ -65,7 +61,7 @@ async function startup(data) {
     Zotero.logError(error);
   });
 }
-async function run() {
+async function run(rootURI) {
   await Zotero.uiReadyPromise;
   const controller = Zotero.CitationPreview;
   assert(controller, "Production addon was not loaded");
@@ -76,6 +72,10 @@ async function run() {
   assert(addon?.isActive, "Production addon is not active");
   status.installation = { version: addon.version, active: addon.isActive };
   const issueCase = status.mode.startsWith("issue-1");
+  assert(typeof rootURI === "string", "Test addon rootURI is required");
+  const arxivFixture = await Zotero.File.getContentsFromURLAsync(
+    rootURI + "issue-1-arxiv.xml",
+  );
   const expectedTitle = issueCase
     ? "Deep Unsupervised Learning using Nonequilibrium Thermodynamics"
     : "Visual citation testing study " + status.destination.match(/\d+$/)[0];
