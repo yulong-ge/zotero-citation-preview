@@ -2,6 +2,27 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { extractNumberedReference, markerNumber } = require("../core.js");
 const fixture = require("./rlvr-ref-fixture.json");
+test("Kalman-Edit worker discretionary hyphens join wrapped words without joining ordinary lines", () => {
+  const lines = [
+    "[44] Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsuper-",
+    "vised learning using nonequilibrium thermodynamics. In International Conference on Machine",
+    "Learning, pages 2256–2265, 2015. 1, 2",
+    "[45] Jiaming Song. Denoising diffusion implicit models. 2021.",
+  ];
+  const chars = lines.flatMap((line, row) =>
+    [...line].map((c, col) => ({
+      c,
+      rect: [10 + col * 5, 500 - row * 12, 15 + col * 5, 510 - row * 12],
+      lineBreakAfter: col === line.length - 1,
+      ignorable: c === "-" && col === line.length - 1,
+    })),
+  );
+  const raw = extractNumberedReference(chars, [10, 510], 44);
+  assert.match(raw, /Deep unsupervised learning/);
+  assert.match(raw, /Machine Learning/);
+  assert.match(raw, /Sohl-Dickstein/);
+  assert.doesNotMatch(raw, /Jiaming Song/);
+});
 test("actual RLVR-World Chinese PDF bibliography geometry returns only DIAMOND [2]", () => {
   const raw = extractNumberedReference(fixture.chars, fixture.point, 2);
   assert.match(raw, /Eloi Alonso/);

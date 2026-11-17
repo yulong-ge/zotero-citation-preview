@@ -1,5 +1,6 @@
 import argparse
 import base64
+import errno
 import json
 import os
 from pathlib import Path
@@ -19,7 +20,14 @@ parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--destination", default="cite.fixture2")
 parser.add_argument(
     "--case",
-    choices=["success", "metadata-failure", "parser-failure", "multiple"],
+    choices=[
+        "success",
+        "metadata-failure",
+        "parser-failure",
+        "multiple",
+        "issue-1",
+        "issue-1-live",
+    ],
     default="success",
 )
 args = parser.parse_args()
@@ -204,3 +212,21 @@ with (root / "process.log").open("wb") as log:
             process.wait(timeout=5)
         if group_exists():
             os.killpg(process.pid, signal.SIGKILL)
+        # Child socket shutdown can finish after the launcher exits.
+        cleanup_deadline = time.monotonic() + 5
+        for port in (23129, 23130):
+            while True:
+                try:
+                    with socket.socket() as reservation:
+                        reservation.setsockopt(
+                            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1
+                        )
+                        reservation.bind(("127.0.0.1", port))
+                    break
+                except OSError as error:
+                    if (
+                        error.errno != errno.EADDRINUSE
+                        or time.monotonic() >= cleanup_deadline
+                    ):
+                        raise
+                    time.sleep(0.05)

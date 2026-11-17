@@ -6,6 +6,10 @@ GitHub Actions runs the production XPI in **Zotero 10.0.8 on Ubuntu 24.04**, wit
 
 Assertions cover correct reference/title, compact native-image replacement, pointer exit dismissal, no late reappearance, and listener cleanup. Screenshots capture the enhanced native popup. This baseline does **not** claim to reproduce the PDF or transient positioning defect in Issue #1. A fix must add its own effective regression check.
 
+The `issue-1` case opens citation `cite.sohl2015deep` in the public Kalman-Edit conference PDF, pinned by SHA256 in the GUI workflow. It verifies the extracted bibliography and resolves reference 44 to arXiv `1503.03585`. Crossref returns an explicit empty test result; `addon/issue-1-arxiv.xml` supplies public identity fields with a synthetic summary. This is separate from the generated PDF cases. The paper is downloaded from its publisher and is not committed or included in the evidence artifact.
+
+For live-service verification, manually dispatch the `Zotero GUI` workflow with `live_metadata=true`. This adds the `issue-1-live` case using actual Crossref and arXiv responses. Network failures remain test failures. The live check is optional so provider availability does not determine routine PR checks. Both cases retain trusted-pointer, placement, dismissal and cleanup assertions. Neither establishes macOS visual parity or equivalence to a different local revision of the paper.
+
 ## Run in Linux Cloud
 
 Install `libgtk-3-0t64 libdbus-glib-1-2 libasound2t64 xvfb xauth fonts-noto-cjk`, `curl`, `xz-utils`, `zip`, and `uv`. The setup script requires Linux x86_64. Use a directory that does not already contain test results:

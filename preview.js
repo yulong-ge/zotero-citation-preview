@@ -165,6 +165,91 @@ var CitationPreview = (() => {
       );
     }
   }
+  async function arxivMetadata(s, raw, signal, identifier) {
+    const terms = [
+      ...new Set(CitationCore.words(CitationCore.joinWrappedWords(raw))),
+    ]
+      .filter((word) => word.length > 2 && !/^\d+$/.test(word))
+      .slice(0, 64);
+    const query = identifier
+      ? "id_list=" + encodeURIComponent(identifier)
+      : "search_query=" +
+        encodeURIComponent(terms.map((word) => "all:" + word).join(" OR ")) +
+        "&max_results=5";
+    const response = await request(
+      s,
+      "https://export.arxiv.org/api/query?" + query,
+      signal,
+    );
+    const xml = new s.win.DOMParser().parseFromString(
+      await response.text(),
+      "application/xml",
+    );
+    if (xml.querySelector("parsererror") || !xml.querySelector("feed"))
+      throw new Error("arXiv returned an invalid Atom feed.");
+    const candidates = [...xml.querySelectorAll("entry")].map((entry) => {
+      const value = (name) =>
+        entry.querySelector(name)?.textContent.replace(/\s+/g, " ").trim();
+      const id = value("id")?.match(
+        /^https?:\/\/arxiv\.org\/abs\/(\d{4}\.\d{4,5}|[a-z][a-z.-]+\/\d{7})(?:v\d+)?$/,
+      )?.[1];
+      if (!id)
+        throw new Error(
+          "arXiv returned an invalid article identifier: " + value("id"),
+        );
+      const names = [...entry.querySelectorAll("author > name")].map((node) =>
+        node.textContent.trim(),
+      );
+      const title = value("title"),
+        published = value("published");
+      if (
+        !title ||
+        !names.length ||
+        names.some((name) => !name) ||
+        !/^\d{4}-\d{2}-\d{2}T/.test(published || "")
+      )
+        throw new Error(
+          "arXiv record omitted a title, author or publication date: " + id,
+        );
+      return {
+        id,
+        title,
+        names,
+        abstract: value("summary"),
+        year: Number(published.slice(0, 4)),
+      };
+    });
+    const matches = candidates.filter((candidate) =>
+      identifier
+        ? candidate.id === identifier.replace(/v\d+$/, "")
+        : CitationCore.validate(raw, {
+            title: [candidate.title],
+            author: candidate.names.map((name) => ({
+              family: name.split(/\s+/).at(-1),
+            })),
+            published: { "date-parts": [[candidate.year]] },
+            type: "posted-content",
+          }),
+    );
+    if (!matches.length)
+      throw new Error(
+        identifier
+          ? "arXiv did not return the cited identifier " + identifier
+          : "未找到标题、作者、年份及文献载体一致的记录（Crossref / arXiv）。未显示猜测结果。",
+      );
+    if (new Set(matches.map((candidate) => candidate.id)).size !== 1)
+      throw new Error(
+        "arXiv 多个记录符合该引用，无法唯一确认。请核对原始引用中的 arXiv 编号。",
+      );
+    const match = matches[0];
+    return {
+      title: match.title,
+      authors: match.names.join(", "),
+      abstract: match.abstract,
+      source: "arXiv · " + (identifier || match.id),
+      url: "https://arxiv.org/abs/" + (identifier || match.id),
+    };
+  }
   async function resolve(s, raw, signal) {
     checkAbort(signal);
     if (cache.has(raw)) {
@@ -179,41 +264,7 @@ var CitationPreview = (() => {
       /(?:arxiv\s*[.:]?\s*|arxiv\.org\/(?:abs|pdf)\/)(\d{4}\.\d{4,5}(?:v\d+)?)/i,
     );
     if (arxiv) {
-      const response = await request(
-        s,
-        "https://export.arxiv.org/api/query?id_list=" + arxiv[1],
-        signal,
-      );
-      const xml = new s.win.DOMParser().parseFromString(
-        await response.text(),
-        "application/xml",
-      );
-      const entry = xml.querySelector("entry");
-      if (
-        !entry ||
-        entry
-          .querySelector("id")
-          ?.textContent.match(/\/(\d{4}\.\d{4,5})(?:v\d+)?$/)?.[1] !==
-          arxiv[1].replace(/v\d+$/, "")
-      )
-        throw new Error(
-          "arXiv did not return the cited identifier " + arxiv[1],
-        );
-      result = {
-        title: entry
-          .querySelector("title")
-          ?.textContent.replace(/\s+/g, " ")
-          .trim(),
-        authors: [...entry.querySelectorAll("author > name")]
-          .map((x) => x.textContent)
-          .join(", "),
-        abstract: entry
-          .querySelector("summary")
-          ?.textContent.replace(/\s+/g, " ")
-          .trim(),
-        source: "arXiv · " + arxiv[1],
-        url: "https://arxiv.org/abs/" + arxiv[1],
-      };
+      result = await arxivMetadata(s, raw, signal, arxiv[1]);
     } else {
       const response = await request(
         s,
@@ -232,41 +283,45 @@ var CitationPreview = (() => {
               CitationCore.validateCarrier(raw, work),
           )
         : data.message.items.filter((work) => CitationCore.validate(raw, work));
-      if (!matches.length)
-        throw new Error(
-          "未找到标题、作者、年份及文献载体一致的记录。未显示猜测结果。",
-        );
-      if (new Set(matches.map((work) => work.DOI.toLowerCase())).size > 1)
-        throw new Error(
-          "多个记录符合该引用，无法唯一确认。请核对原始引用中的 DOI 或 arXiv 编号。",
-        );
-      const work = matches[0];
-      result = {
-        title: work.title[0],
-        authors: work.author
-          .map((a) => [a.given, a.family].filter(Boolean).join(" "))
-          .join(", "),
-        abstract: "",
-        source: "Crossref · " + work.DOI,
-        url: "https://doi.org/" + work.DOI,
-      };
-      if (work.abstract) {
-        result.abstract = new s.win.DOMParser().parseFromString(
-          "<body>" + work.abstract + "</body>",
-          "text/html",
-        ).body.textContent;
+      if (!matches.length && !doi) {
+        result = await arxivMetadata(s, raw, signal);
       } else {
-        const oa = await request(
-          s,
-          "https://api.openalex.org/works/https://doi.org/" +
-            encodeURIComponent(work.DOI),
-          signal,
-        );
-        const record = await oa.json();
-        result.abstract = CitationCore.invertedAbstract(
-          record.abstract_inverted_index,
-        );
-        result.source += " · 摘要：OpenAlex";
+        if (!matches.length)
+          throw new Error(
+            "未找到标题、作者、年份及文献载体一致的记录。未显示猜测结果。",
+          );
+        if (new Set(matches.map((work) => work.DOI.toLowerCase())).size > 1)
+          throw new Error(
+            "多个记录符合该引用，无法唯一确认。请核对原始引用中的 DOI 或 arXiv 编号。",
+          );
+        const work = matches[0];
+        result = {
+          title: work.title[0],
+          authors: work.author
+            .map((a) => [a.given, a.family].filter(Boolean).join(" "))
+            .join(", "),
+          abstract: "",
+          source: "Crossref · " + work.DOI,
+          url: "https://doi.org/" + work.DOI,
+        };
+        if (work.abstract) {
+          result.abstract = new s.win.DOMParser().parseFromString(
+            "<body>" + work.abstract + "</body>",
+            "text/html",
+          ).body.textContent;
+        } else {
+          const oa = await request(
+            s,
+            "https://api.openalex.org/works/https://doi.org/" +
+              encodeURIComponent(work.DOI),
+            signal,
+          );
+          const record = await oa.json();
+          result.abstract = CitationCore.invertedAbstract(
+            record.abstract_inverted_index,
+          );
+          result.source += " · 摘要：OpenAlex";
+        }
       }
     }
     if (!result.title || !result.authors)

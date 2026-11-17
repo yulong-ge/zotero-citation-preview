@@ -20,8 +20,10 @@ test("same reference reuses metadata cache but never recreates a native popup", 
 });
 test("a rejected metadata match remains an explicit error within the original native popup", async () => {
   const e = environment({
-    request: async () => ({
-      responseText: JSON.stringify({ message: { items: [] } }),
+    request: async (_method, url) => ({
+      responseText: url.includes("arxiv")
+        ? '<feed xmlns="http://www.w3.org/2005/Atom"/>'
+        : JSON.stringify({ message: { items: [] } }),
     }),
   });
   e.addon.start();

@@ -28,7 +28,7 @@ function capture() {
   screenshot = canvas.toDataURL("image/png").split(",")[1];
   status.hasScreenshot = true;
 }
-async function startup() {
+async function startup(data) {
   await Zotero.initializationPromise;
   status.runID = Services.env.get("HOST_CASE_RUN_ID");
   status.destination = Services.env.get("HOST_CASE_DEST");
@@ -50,8 +50,16 @@ async function startup() {
       return [200, "text/plain", screenshot];
     }
   };
-  run().catch((error) => {
+  run(data.rootURI).catch((error) => {
     status.error = { message: String(error), stack: error.stack };
+    const view = reader?._internalReader?._primaryView;
+    status.nativeDiagnostics = {
+      scrolling: view?._scrolling,
+      selectedType: view?._selectedOverlay?.type,
+      hovering: !!view?._hover,
+      openingPending: !!view?._overlayPopupDelayer?._openingTimeout,
+      pointerOutside: view?._overlayPopupDelayer?._outside,
+    };
     try {
       capture();
     } catch (captureError) {
@@ -61,7 +69,7 @@ async function startup() {
     Zotero.logError(error);
   });
 }
-async function run() {
+async function run(rootURI) {
   await Zotero.uiReadyPromise;
   const controller = Zotero.CitationPreview;
   assert(controller, "Production addon was not loaded");
@@ -71,6 +79,22 @@ async function run() {
   const addon = await AddonManager.getAddonByID("citation-preview@local");
   assert(addon?.isActive, "Production addon is not active");
   status.installation = { version: addon.version, active: addon.isActive };
+  const issueCase = status.mode.startsWith("issue-1");
+  assert(typeof rootURI === "string", "Test addon rootURI is required");
+  const arxivFixture = await Zotero.File.getContentsFromURLAsync(
+    rootURI + "issue-1-arxiv.xml",
+  );
+  const expectedTitle = issueCase
+    ? "Deep Unsupervised Learning using Nonequilibrium Thermodynamics"
+    : "Visual citation testing study " + status.destination.match(/\d+$/)[0];
+  const successCase = [
+    "success",
+    "multiple",
+    "issue-1",
+    "issue-1-live",
+  ].includes(status.mode);
+  if (status.mode === "issue-1-live")
+    status.metadataSource = "live Crossref and arXiv";
   // Only metadata is deterministic; PDF processing, hit testing and popup UI use the installed Zotero.
   originalRequest = Zotero.HTTP.request;
   Zotero.HTTP.request = async function (method, url, options) {
@@ -80,6 +104,38 @@ async function run() {
       )
     )
       return originalRequest.call(this, method, url, options);
+    if (issueCase) {
+      (status.metadataURLs ||= []).push(url);
+      status.metadataRequests = (status.metadataRequests || 0) + 1;
+      if (url.startsWith("https://api.crossref.org/works?")) {
+        status.rawReference = decodeURIComponent(
+          url.split("query.bibliographic=")[1].split("&")[0],
+        );
+        assert(
+          /Sohl-Dickstein/.test(status.rawReference) &&
+            /thermodynamics/.test(status.rawReference) &&
+            /2015/.test(status.rawReference),
+          "Wrong reference extracted from Kalman-Edit PDF",
+        );
+        if (status.mode === "issue-1-live")
+          return originalRequest.call(this, method, url, options);
+        return { responseText: JSON.stringify({ message: { items: [] } }) };
+      }
+      assert(
+        url.startsWith("https://export.arxiv.org/api/query?search_query="),
+        "Expected arXiv bibliographic search: " + url,
+      );
+      if (status.mode === "issue-1-live")
+        return originalRequest.call(this, method, url, options);
+      return { responseText: arxivFixture };
+    }
+    if (
+      status.mode === "metadata-failure" &&
+      url.startsWith("https://export.arxiv.org/")
+    ) {
+      status.metadataRequests++;
+      return { responseText: '<feed xmlns="http://www.w3.org/2005/Atom"/>' };
+    }
     assert(
       url.startsWith("https://api.crossref.org/works?"),
       "Unexpected metadata request: " + url,
@@ -160,7 +216,7 @@ async function run() {
     "Source page did not become ready",
   );
   await Zotero.Promise.delay(800);
-  const rect = view.getClientRect(
+  let rect = view.getClientRect(
     Cu.cloneInto(position.rects[0], view._iframeWindow),
     0,
   );
@@ -175,9 +231,19 @@ async function run() {
   view._iframeWindow.addEventListener(
     "pointermove",
     (event) => {
+      status.pointerEvents = (status.pointerEvents || 0) + 1;
       status.trustedPointer = event.isTrusted;
+      const position = view.pointerEventToPosition(event);
+      status.pointerProbe = {
+        x: event.clientX,
+        y: event.clientY,
+        target: event.target.tagName,
+        scrolling: view._scrolling,
+        pageIndex: position?.pageIndex,
+        overlayType: position && view._getSelectableOverlay(position)?.type,
+      };
     },
-    { once: true },
+    false,
   );
   const doc = reader._iframeWindow.document;
   const popup = () => reader._internalReader._state.primaryViewOverlayPopup;
@@ -244,8 +310,27 @@ async function run() {
     };
   }
   status.stage = "hovering";
-  status.sourceRect = Array.from(rect);
-  move((rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2);
+  // Native Zotero ignores pointer moves during scroll, including late PDF layout scrolls.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await waitFor(() => !view._scrolling, "Source page did not stop scrolling");
+    rect = view.getClientRect(
+      Cu.cloneInto(position.rects[0], view._iframeWindow),
+      0,
+    );
+    status.sourceRect = Array.from(rect);
+    status.hoverAttempts = attempt + 1;
+    const before = status.pointerEvents || 0;
+    move(
+      (rect[0] + rect[2]) / 2 + (attempt % 2 ? 1 : -1),
+      (rect[1] + rect[3]) / 2,
+    );
+    await waitFor(
+      () => status.pointerEvents > before,
+      "Trusted pointer event was not delivered",
+    );
+    if (!status.pointerProbe.scrolling) break;
+    assert(attempt < 4, "Zotero kept discarding hover events during scroll");
+  }
   await waitFor(() => popup(), "Trusted hover did not open the native popup");
   status.nativePopupType = popup().type;
   await waitFor(
@@ -256,7 +341,7 @@ async function run() {
   sample();
   const terminal = () => {
     const block = doc.querySelector(".cp-native-metadata");
-    return ["success", "multiple"].includes(status.mode)
+    return successCase
       ? block?.querySelector("h2")
       : /引用(?:查询|解析)失败/.test(block?.textContent || "");
   };
@@ -271,12 +356,16 @@ async function run() {
   const block = doc.querySelector(".cp-native-metadata");
   status.title = block.querySelector("h2")?.textContent;
   assert(
-    ["success", "multiple"].includes(status.mode)
-      ? status.title ===
-          "Visual citation testing study " + destination.match(/\d+$/)[0]
-      : !status.title,
+    successCase ? status.title === expectedTitle : !status.title,
     "Wrong terminal content",
   );
+  if (issueCase) {
+    assert(
+      block.textContent.includes("arXiv · 1503.03585"),
+      "Wrong arXiv identity in Kalman-Edit citation",
+    );
+    status.verifiedIdentifier = "1503.03585";
+  }
   if (status.mode === "multiple") {
     phase = "switch-loading";
     const choice = doc.querySelectorAll(".cp-reference-choice")[1];
@@ -297,7 +386,13 @@ async function run() {
     ).textContent;
   }
   const expectedRequests =
-    status.mode === "parser-failure" ? 0 : status.mode === "multiple" ? 2 : 1;
+    status.mode === "parser-failure"
+      ? 0
+      : ["multiple", "metadata-failure", "issue-1", "issue-1-live"].includes(
+            status.mode,
+          )
+        ? 2
+        : 1;
   status.expectedMetadataRequests = expectedRequests;
   if (status.mode === "multiple") {
     assert(

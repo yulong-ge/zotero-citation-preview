@@ -5,7 +5,12 @@ for (const failure of [false, true])
   test(`placement follows loading and async ${failure ? "failure" : "success"} size`, async () => {
     let complete;
     const e = environment({
-      request: () => new Promise((resolve) => (complete = resolve)),
+      request: (_method, url) =>
+        url.includes("arxiv")
+          ? Promise.resolve({
+              responseText: '<feed xmlns="http://www.w3.org/2005/Atom"/>',
+            })
+          : new Promise((resolve) => (complete = resolve)),
     });
     e.addon.start();
     const host = e.popup({

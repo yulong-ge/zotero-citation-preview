@@ -6,6 +6,8 @@
       .replace(/\p{M}/gu, "")
       .toLowerCase()
       .match(/[\p{L}\p{N}]+/gu) || [];
+  const joinWrappedWords = (text) =>
+    text.replace(/(\p{L})[-\u00ad]\s+(?=\p{Ll})/gu, "$1");
   function referenceText(ref) {
     return (ref.chars || [])
       .filter((c) => !c.ignorable)
@@ -49,7 +51,8 @@
   function validate(raw, work) {
     const title = work.title?.[0];
     const tokens = words(title).filter((x) => x.length > 2);
-    const input = new Set(words(raw));
+    // Keep both forms: a line-end hyphen may be discretionary or part of a name.
+    const input = new Set([...words(raw), ...words(joinWrappedWords(raw))]);
     const titleMatch =
       tokens.length >= 3 &&
       tokens.filter((x) => input.has(x)).length / tokens.length >= 0.9;
@@ -112,6 +115,8 @@
               .join("")
               .trim(),
             chars: usable,
+            // Zotero marks a discretionary line-end dash as ignorable.
+            joinNext: c.ignorable && c.lineBreakAfter,
             y0: Math.min(...usable.map((x) => x.rect[1])),
             y1: Math.max(...usable.map((x) => x.rect[3])),
           });
@@ -142,8 +147,8 @@
       throw new Error("未找到下一条连续编号，无法确认完整参考文献边界。");
     const raw = lines
       .slice(start.index, next.index)
-      .map((x) => x.text)
-      .join(" ")
+      .map((x) => x.text + (x.joinNext ? "" : " "))
+      .join("")
       .replace(/\s+/g, " ")
       .trim();
     if (raw.length < 30 || raw.length > 3000 || !/\b(?:19|20)\d{2}\b/.test(raw))
@@ -152,6 +157,7 @@
   }
   const api = {
     words,
+    joinWrappedWords,
     referenceText,
     validate,
     validateCarrier,
