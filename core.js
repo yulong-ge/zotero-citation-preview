@@ -115,6 +115,8 @@
               .join("")
               .trim(),
             chars: usable,
+            // Zotero marks a discretionary line-end dash as ignorable.
+            joinNext: c.ignorable && c.lineBreakAfter,
             y0: Math.min(...usable.map((x) => x.rect[1])),
             y1: Math.max(...usable.map((x) => x.rect[3])),
           });
@@ -145,8 +147,8 @@
       throw new Error("未找到下一条连续编号，无法确认完整参考文献边界。");
     const raw = lines
       .slice(start.index, next.index)
-      .map((x) => x.text)
-      .join(" ")
+      .map((x) => x.text + (x.joinNext ? "" : " "))
+      .join("")
       .replace(/\s+/g, " ")
       .trim();
     if (raw.length < 30 || raw.length > 3000 || !/\b(?:19|20)\d{2}\b/.test(raw))
