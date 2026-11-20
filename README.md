@@ -1,5 +1,7 @@
 # Citation Preview for Zotero 10
 
+[![Zotero 中文社区 · 已收录](https://zotero-chinese.com/badges/listed.svg)](https://zotero-chinese.com/plugins/)
+
 Shows verified paper metadata and abstracts inside Zotero's native citation popovers. Hover over a supported citation to read the abstract; grouped citations have numbered buttons for selecting each paper. Moving away closes the native popup. Abstracts come from metadata services and are never generated.
 
 ![Citation Preview in Zotero: hovering reference 44 in Kalman-Edit shows the cited paper's title, authors and abstract.](assets/citation-preview-live.png)
